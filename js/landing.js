@@ -1,11 +1,16 @@
 /* Landing-page interactions: sticky-nav shadow, reveal-on-scroll, beta signup. */
 (function () {
-  /* always open at the top — iOS otherwise restores/jumps toward the embedded app iframe */
+  /* always open at the top — iOS otherwise restores scroll toward the bottom on reload/bfcache */
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
-  if (!location.hash) {
-    window.scrollTo(0, 0);
-    addEventListener("load", function () { window.scrollTo(0, 0); });
-  }
+  function pinTop() { if (!location.hash) window.scrollTo(0, 0); }
+  pinTop();
+  addEventListener("load", function () {
+    pinTop();
+    // load the embedded app only after we're pinned at the top, so it can't pull the page down
+    var f = document.querySelector(".app-frame[data-src]");
+    if (f) { f.src = f.getAttribute("data-src"); f.removeAttribute("data-src"); }
+  });
+  addEventListener("pageshow", function (e) { if (e.persisted) pinTop(); });
 
   /* nav shadow on scroll */
   var header = document.getElementById("header");
