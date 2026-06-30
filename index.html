@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Monium · Your money, finally clear</title>
+<meta name="description" content="Monium brings calm and clarity to your finances: spending, saving, and growing, all in one beautiful place." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;1,500;1,600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/landing.css" />
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+</head>
+<body>
+
+<div class="mesh">
+  <div class="blob a"></div>
+  <div class="blob b"></div>
+  <div class="blob c"></div>
+</div>
+
+<!-- NAV -->
+<header id="header">
+  <div class="wrap nav">
+    <div class="logo serif">Monium</div>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#reviews">Reviews</a>
+      <a href="#join" class="btn btn-dark">Join Beta</a>
+    </nav>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap">
+    <span class="pill"><span class="dot"></span> NOW IN BETA</span>
+    <h1 class="hero-title serif">Your money,<br><span class="grad">finally clear</span></h1>
+    <p class="hero-sub">Monium brings calm and clarity to your finances: spending, saving, and growing, all in one beautiful place.</p>
+    <form class="email-form" onsubmit="return joinBeta(event)">
+      <input type="text" name="name" placeholder="First name" required aria-label="First name" />
+      <input type="email" name="email" placeholder="Email address" required aria-label="Email address" />
+      <button class="btn btn-grad" type="submit">Get early access</button>
+    </form>
+    <p class="micro">Free during beta · No credit card needed</p>
+  </div>
+</section>
+
+<!-- LIVE APP -->
+<section class="band" id="experience">
+  <div class="wrap exp-grid">
+    <div class="exp-copy reveal">
+      <div class="eyebrow">The live app</div>
+      <h2>Your money,<br>in your pocket.</h2>
+      <p>Connect a statement, get your daily Safe-to-Spend, set goals just by chatting, and log spends in a tap. This is the real thing. Try it.</p>
+      <div class="legend">
+        <div class="legend-item"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg></span><span>Connect your bank with Plaid, or upload a CSV. Monium parses it privately.</span></div>
+        <div class="legend-item"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></svg></span><span>Tell the chat <i>“save $5,000 for a car by December”</i> and watch a vault appear.</span></div>
+        <div class="legend-item"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span><span>Log a spend and every number updates, live.</span></div>
+      </div>
+    </div>
+    <div class="exp-app reveal">
+      <iframe class="app-frame" src="app.html?embed=1" title="Monium live app" loading="lazy"></iframe>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section class="band" id="features">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="eyebrow">Features</div>
+      <h2>Everything in one calm place</h2>
+      <p>Monium turns the chaos of variable income into a single, trustworthy number, plus the tools to grow it.</p>
+    </div>
+    <div class="features">
+      <div class="feature reveal"><div class="fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></div><h3>Daily Safe-to-Spend</h3><p>One number that tells you exactly how much you can spend today without breaking your monthly plan.</p></div>
+      <div class="feature reveal"><div class="fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div><h3>Private Vault</h3><p>Bank statements encrypted with AES-256. We don't sell it, share it, or look at it. Delete anytime.</p></div>
+      <div class="feature reveal"><div class="fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></svg></div><h3>Budget Streaks</h3><p>Stay under today and watch the streak grow. Gentle nudges keep tomorrow on track.</p></div>
+      <div class="feature reveal"><div class="fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div><h3>Smart Goals</h3><p>Say what you want and by when. Monium carves out the right amount and tracks every milestone.</p></div>
+      <div class="feature reveal"><div class="fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg></div><h3>Bill Escrow</h3><p>Upcoming bills are protected upfront, so your daily limit reflects what's truly safe to spend.</p></div>
+      <div class="feature reveal"><div class="fic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></svg></div><h3>Just Ask</h3><p>Chat is the product, not a feature. Ask anything and get an answer grounded in your real money.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- REVIEWS -->
+<section class="band" id="reviews" style="background:linear-gradient(180deg, transparent, rgba(216,210,239,.18), transparent)">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="eyebrow">Reviews</div>
+      <h2>Loved by people with messy incomes</h2>
+      <p>Freelancers, gig workers, and anyone whose paycheck doesn't look like everyone else's.</p>
+    </div>
+    <div class="reviews">
+      <div class="review reveal"><div class="stars">★★★★★</div><p>"I stopped doing math in my head at checkout. I just ask Monium and it tells me. Genuinely the calmest I've felt about money in years."</p><div class="reviewer"><div class="pf">M</div><div><div class="nm">Maya R.</div><div class="rl">Freelance designer</div></div></div></div>
+      <div class="review reveal"><div class="stars">★★★★★</div><p>"My income is all over the place as a rideshare driver. Monium finally gave me one number I can trust. The streaks keep me honest."</p><div class="reviewer"><div class="pf">D</div><div><div class="nm">Devon K.</div><div class="rl">Rideshare driver</div></div></div></div>
+      <div class="review reveal"><div class="stars">★★★★★</div><p>"It's beautiful and it actually works. Set a goal for a trip by typing one sentence and it just handled it. Hit it two weeks early."</p><div class="reviewer"><div class="pf">S</div><div><div class="nm">Sofia L.</div><div class="rl">Photographer</div></div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-band" id="join">
+  <div class="wrap">
+    <div class="cta-card reveal">
+      <h2 class="serif">Start in under <span class="grad">a minute.</span></h2>
+      <p>Create your account and you're straight into the dashboard. No waitlist, no credit card.</p>
+      <form class="email-form" onsubmit="return joinBeta(event)" style="margin-top:34px">
+        <input type="text" name="name" placeholder="First name" required aria-label="First name" />
+        <input type="email" name="email" placeholder="Email address" required aria-label="Email address" />
+        <button class="btn btn-grad" type="submit">Get early access</button>
+      </form>
+      <p class="micro" style="margin-top:14px">Read-only access via Plaid · We never see your password · Delete your data anytime</p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    <div class="foot">
+      <div class="logo serif">Monium</div>
+      <div class="foot-links">
+        <a href="#features">Features</a>
+        <a href="#reviews">Reviews</a>
+        <a href="#">Privacy</a>
+        <a href="#">Terms</a>
+      </div>
+    </div>
+    <p class="foot-note">© 2026 Monium. Your money, finally clear.</p>
+  </div>
+</footer>
+
+<!-- config -> shared backend -> page logic (order matters) -->
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+<script src="js/landing.js"></script>
+</body>
+</html>

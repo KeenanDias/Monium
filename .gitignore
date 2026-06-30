@@ -1,0 +1,16 @@
+# --- secrets / local runtime config ---
+# Copy js/config.example.js -> js/config.js and put your keys there.
+js/config.js
+.env
+.env.local
+
+# --- editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- node (only if you add a build tool later) ---
+node_modules/
+dist/
+*.log

@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Monium · Live App</title>
+<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+<div id="root"></div>
+
+<!-- config -> shared backend (must load before the app boots) -->
+<script src="js/config.js"></script>
+<script src="js/supabase.js"></script>
+
+<script>
+  window.addEventListener('error', function (e) {
+    var r = document.getElementById('root');
+    if (r && !r.dataset.mounted) r.innerHTML = '<pre style="color:#b91c1c;padding:24px;white-space:pre-wrap;font:13px ui-monospace,monospace">⚠ ' + (e.message || e.error) + '</pre>';
+  });
+</script>
+
+<script type="text/plain" id="app-src">
+const { useState, useEffect, useRef } = React;
+const EMBED = new URLSearchParams(location.search).has("embed");
+// dev scaffolding (stepper, Reset demo, Join Beta) shows only while developing locally —
+// never inside the landing-page embed, and never once this is on a real domain.
+const HOST = location.hostname;
+const DEV = !HOST || HOST === "localhost" || HOST === "127.0.0.1";
+const CHROME = DEV && !EMBED;
+if (!EMBED) document.body.classList.add("standalone");
+
+/* ===== Lucide-style icons (real Lucide path data, inlined) ===== */
+const Svg = ({ children, size = 24, sw = 2, className = "" }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor"
+       strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>
+);
+const Upload   = (p) => <Svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></Svg>;
+const FileText = (p) => <Svg {...p}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></Svg>;
+const Bank     = (p) => <Svg {...p}><line x1="3" y1="22" x2="21" y2="22"/><line x1="6" y1="18" x2="6" y2="11"/><line x1="10" y1="18" x2="10" y2="11"/><line x1="14" y1="18" x2="14" y2="11"/><line x1="18" y1="18" x2="18" y2="11"/><polygon points="12 2 20 7 4 7"/></Svg>;
+const Check    = (p) => <Svg {...p}><path d="M20 6 9 17l-5-5"/></Svg>;
+const Sparkles = (p) => <Svg {...p}><path d="M9.94 14.06A2 2 0 0 0 8.5 12.6l-5.4-1.4a.5.5 0 0 1 0-1l5.4-1.4A2 2 0 0 0 9.94 7.4l1.4-5.4a.5.5 0 0 1 1 0l1.4 5.4a2 2 0 0 0 1.44 1.44l5.4 1.4a.5.5 0 0 1 0 1l-5.4 1.4a2 2 0 0 0-1.44 1.44l-1.4 5.4a.5.5 0 0 1-1 0z"/><path d="M19 3v4"/><path d="M21 5h-4"/></Svg>;
+const Lock     = (p) => <Svg {...p}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Svg>;
+const Wallet   = (p) => <Svg {...p}><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></Svg>;
+const Target   = (p) => <Svg {...p}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></Svg>;
+const Flame    = (p) => <Svg {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></Svg>;
+const Plus     = (p) => <Svg {...p}><path d="M5 12h14"/><path d="M12 5v14"/></Svg>;
+const Coffee   = (p) => <Svg {...p}><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4z"/><path d="M6 2v2"/><path d="M10 2v2"/><path d="M14 2v2"/></Svg>;
+const ArrowR   = (p) => <Svg {...p}><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></Svg>;
+const Shield   = (p) => <Svg {...p}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></Svg>;
+const X        = (p) => <Svg {...p}><path d="M18 6 6 18"/><path d="M6 6l12 12"/></Svg>;
+const HomeI    = (p) => <Svg {...p}><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></Svg>;
+const Bag      = (p) => <Svg {...p}><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></Svg>;
+const Utensils = (p) => <Svg {...p}><path d="M3 2v7c0 1.1.9 2 2 2a2 2 0 0 0 2-2V2"/><path d="M5 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></Svg>;
+const Car      = (p) => <Svg {...p}><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></Svg>;
+const Plane    = (p) => <Svg {...p}><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></Svg>;
+const MessageC = (p) => <Svg {...p}><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/></Svg>;
+const Bulb     = (p) => <Svg {...p}><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></Svg>;
+const Bell     = (p) => <Svg {...p}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></Svg>;
+const Repeat   = (p) => <Svg {...p}><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></Svg>;
+const Send     = (p) => <Svg {...p}><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></Svg>;
+
+/* ===== helpers ===== */
+const money  = (n, dp = 2) => "$" + Number(Math.abs(n)).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+const moneyW = (n) => "$" + Math.round(n).toLocaleString("en-US");
+const clamp  = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function useCountUp(value, duration = 650) {
+  const [d, setD] = useState(value);
+  const from = useRef(value);
+  useEffect(() => {
+    const start = performance.now(), a = from.current, b = value;
+    let raf;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / duration);
+      const e = 1 - Math.pow(1 - t, 3);
+      setD(a + (b - a) * e);
+      if (t < 1) raf = requestAnimationFrame(tick); else from.current = b;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return d;
+}
+
+/* ===== model ===== */
+const INCOME = 3000, FIXED = 1200, BUFFER = 75, ESCROW = 0, DAYS_LEFT = 30;
+const FIXED_ITEMS = [
+  { label: "Rent", amt: 1150, icon: HomeI },
+  { label: "Gym membership", amt: 39, icon: Repeat },
+  { label: "Spotify", amt: 11, icon: Sparkles },
+];
+const dailyFromBite = (bite) => Math.max(0, (INCOME - FIXED - BUFFER - ESCROW - bite) / DAYS_LEFT);
+const parseAmount = (t) => { const m = t.replace(/,/g, "").match(/\$?\s?(\d+(?:\.\d{1,2})?)/); return m ? parseFloat(m[1]) : null; };
+
+/* ===== shared bits ===== */
+const Mark = ({ size = 38 }) => (
+  <div className="rounded-full grid place-items-center shrink-0 bg-neutral-900 text-white"
+       style={{ width: size, height: size }}>
+    <span className="serif" style={{ fontWeight: 700, fontSize: size * 0.5, lineHeight: 1 }}>M</span>
+  </div>
+);
+const StatusBar = () => (
+  <div className="flex items-center justify-between px-7 pt-3 pb-1 text-neutral-900 text-[13px] font-semibold tracking-tight z-20 relative">
+    <span>9:41</span>
+    <div className="flex items-center gap-1.5">
+      <svg width="17" height="12" viewBox="0 0 17 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="4.5" y="4.5" width="3" height="7.5" rx="1"/><rect x="9" y="2" width="3" height="10" rx="1"/><rect x="13.5" y="0" width="3" height="12" rx="1"/></svg>
+      <div className="w-[22px] h-[11px] rounded-[3px] border border-neutral-900/70 p-[1.5px]"><div className="h-full w-[70%] bg-neutral-900 rounded-[1px]"/></div>
+    </div>
+  </div>
+);
+const Ring = ({ pct, warn }) => {
+  const r = 82, c = 2 * Math.PI * r;
+  const off = c * (1 - clamp(pct, 0, 1));
+  return (
+    <svg viewBox="0 0 200 200" className="absolute inset-0 w-full h-full -rotate-90">
+      <circle cx="100" cy="100" r={r} stroke="#ededed" strokeWidth="10" fill="none"/>
+      <circle cx="100" cy="100" r={r} stroke={warn ? "#a3a3a3" : "#0a0a0a"} strokeWidth="10" fill="none" strokeLinecap="round"
+              strokeDasharray={c} strokeDashoffset={off} style={{ transition: "stroke-dashoffset .7s cubic-bezier(.2,.8,.2,1)" }}/>
+    </svg>
+  );
+};
+const Bubble = ({ children }) => (
+  <div className="max-w-[88%] rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-neutral-700 text-[13.5px] leading-snug">{children}</div>
+);
+
+/* ============================================================== */
+/*  SCREEN 1 — Connect                                            */
+/* ============================================================== */
+function ScreenConnect({ onDone }) {
+  const [phase, setPhase] = useState("idle");
+  const [method, setMethod] = useState("bank");
+  const [done, setDone] = useState(0);
+  const steps = method === "bank"
+    ? ["Linking your bank with Plaid…", "Pulling 90 days of transactions…", "Isolating fixed payroll lines…", "Identifying recurring subscriptions…", "Categorizing discretionary spend…"]
+    : ["Reading statement rows…", "Isolating fixed payroll lines…", "Identifying recurring subscriptions…", "Categorizing discretionary spend…", "Encrypting & saving to your vault…"];
+  useEffect(() => {
+    if (phase !== "parsing") return;
+    if (done >= steps.length) { const t = setTimeout(() => setPhase("done"), 420); return () => clearTimeout(t); }
+    const t = setTimeout(() => setDone((d) => d + 1), done === 0 ? 460 : 620);
+    return () => clearTimeout(t);
+  }, [phase, done]);
+
+  return (
+    <div className="px-5 pt-2 pb-6 anim-fadeUp">
+      <div className="flex items-center gap-3 mb-5">
+        <Mark />
+        <div>
+          <div className="text-neutral-900 font-semibold text-[15px] flex items-center gap-1.5">Monium <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-neutral-900 text-white">BETA</span></div>
+          <div className="text-neutral-500 text-xs flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-neutral-900"/>online</div>
+        </div>
+      </div>
+      <div className="space-y-2.5 mb-5">
+        <Bubble>Hey 👋 I'm Monium. Let's find your <b className="text-neutral-900">Safe-to-Spend</b> number.</Bubble>
+        <Bubble>Link your bank with <b className="text-neutral-900">Plaid</b>, or upload a statement (PDF · CSV) — I'll parse it privately.</Bubble>
+      </div>
+
+      {phase === "idle" && (
+        <div className="anim-fadeIn">
+          <div className="flex gap-2 mb-3">
+            {[["bank","Connect bank",Bank],["upload","Upload CSV",Upload]].map(([k,lbl,Ic]) => (
+              <button key={k} onClick={() => setMethod(k)}
+                className={`flex-1 rounded-xl border px-3 py-2.5 text-[13px] font-semibold flex items-center justify-center gap-2 transition ${method===k ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-white text-neutral-500"}`}>
+                <Ic size={16}/> {lbl}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setPhase("parsing")}
+            className={`group w-full rounded-2xl border bg-neutral-50 hover:bg-neutral-100 hover:border-neutral-400 transition-all p-6 text-center ${method==="upload" ? "border-dashed border-neutral-300" : "border-neutral-200"}`}>
+            <div className="mx-auto mb-3 w-12 h-12 rounded-xl grid place-items-center bg-neutral-900 text-white group-hover:scale-105 transition">
+              {method==="bank" ? <Bank size={22}/> : <Upload size={22}/>}
+            </div>
+            <div className="text-neutral-900 font-semibold text-[15px]">{method==="bank" ? "Connect with Plaid" : "Upload Bank Statement"}</div>
+            <div className="text-neutral-400 text-xs mt-1">{method==="bank" ? "Bank-grade · read-only · 12,000+ banks" : "PDF · CSV — drop or browse"}</div>
+          </button>
+        </div>
+      )}
+
+      {phase !== "idle" && (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4 anim-fadeIn shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+          <div className="flex items-center gap-2.5 mb-4">
+            <div className="w-9 h-9 rounded-lg grid place-items-center bg-neutral-100 text-neutral-700">{method==="bank" ? <Bank size={18}/> : <FileText size={18} />}</div>
+            <div className="min-w-0">
+              <div className="text-neutral-900 text-sm font-medium truncate">{method==="bank" ? "Chase · ····4821" : "statement_june.csv"}</div>
+              <div className="text-neutral-400 text-xs">{method==="bank" ? "Linked via Plaid · 92 transactions" : "248 KB · 92 transactions"}</div>
+            </div>
+            {phase === "done" && <Check className="ml-auto text-neutral-900" size={20} />}
+          </div>
+          <div className="space-y-2.5">
+            {steps.map((s, i) => {
+              const complete = i < done || phase === "done";
+              const active = i === done && phase === "parsing";
+              return (
+                <div key={i} className={`flex items-center gap-3 text-[13px] transition-all duration-300 ${complete ? "text-neutral-800" : active ? "text-neutral-900" : "text-neutral-300"}`}>
+                  <span className="w-4 h-4 grid place-items-center">
+                    {complete ? <span className="text-neutral-900 anim-pop inline-flex"><Check size={15} sw={3}/></span>
+                      : active ? <span className="w-3.5 h-3.5 rounded-full border-2 border-neutral-300 border-t-neutral-900 animate-spin"/>
+                      : <span className="w-1.5 h-1.5 rounded-full bg-neutral-300"/>}
+                  </span>{s}
+                </div>
+              );
+            })}
+          </div>
+          {phase === "done" && (
+            <button onClick={onDone}
+              className="mt-5 w-full rounded-xl py-3 font-semibold text-white flex items-center justify-center gap-2 bg-neutral-900 hover:bg-neutral-800 transition anim-fadeUp">
+              Review your money <ArrowR size={18} sw={2.5} />
+            </button>
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-2 mt-5 text-neutral-400 text-[11px] leading-relaxed">
+        <Lock size={26} className="text-neutral-300 shrink-0" />
+        <span>Read-only access via Plaid · we never see or store your bank login. Everything's encrypted with AES-256.</span>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================== */
+/*  SCREEN 2 — Review                                             */
+/* ============================================================== */
+function ScreenReview({ goals, onDone }) {
+  const [grown, setGrown] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setGrown(true), 120); return () => clearTimeout(t); }, []);
+  const goalBite = goals.filter(g => g.enrolled).reduce((s, g) => s + g.monthly, 0);
+  const runway = INCOME - FIXED - BUFFER - goalBite;
+  const seg = (v) => (grown ? (v / INCOME) * 100 : 0) + "%";
+  return (
+    <div className="px-5 pt-2 pb-6 anim-fadeUp">
+      <div className="mb-1 text-neutral-400 text-[11px] font-bold tracking-[.16em] uppercase">Parsed · {moneyW(INCOME)} / mo</div>
+      <h2 className="text-neutral-900 text-[26px] font-bold leading-tight tracking-tight mb-4 serif">Here's how I split<br/>your money.</h2>
+      <div className="h-3.5 w-full rounded-full overflow-hidden flex bg-neutral-100 mb-2">
+        <div className="h-full bg-neutral-900" style={{ width: seg(FIXED + BUFFER), transition: "width 1s cubic-bezier(.2,.8,.2,1)" }} />
+        <div className="h-full bg-neutral-500" style={{ width: seg(goalBite), transition: "width 1s .1s cubic-bezier(.2,.8,.2,1)" }} />
+        <div className="h-full bg-neutral-300" style={{ width: seg(runway), transition: "width 1s .2s cubic-bezier(.2,.8,.2,1)" }} />
+      </div>
+      <div className="flex justify-between text-[11px] text-neutral-500 mb-5">
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-neutral-900"/>Fixed</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-neutral-500"/>Vaults</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-neutral-300"/>Runway</span>
+      </div>
+      <Block icon={Lock} title="Fixed Liabilities" badge="Locked Out" amount={moneyW(FIXED + BUFFER)}>
+        <div className="space-y-2 mt-3">
+          {FIXED_ITEMS.map((f) => (
+            <div key={f.label} className="flex items-center gap-2.5 text-[13px]">
+              <f.icon size={15} className="text-neutral-400" /><span className="text-neutral-600">{f.label}</span>
+              <span className="ml-auto text-neutral-500 tabular-nums">{moneyW(f.amt)}</span>
+            </div>
+          ))}
+          <div className="flex items-center gap-2.5 text-[13px]"><Shield size={15} className="text-neutral-400"/><span className="text-neutral-600">Safety buffer</span><span className="ml-auto text-neutral-500 tabular-nums">{moneyW(BUFFER)}</span></div>
+        </div>
+      </Block>
+      <Block icon={Wallet} title="Goal Vault Allocations" badge="Auto-hidden" amount={moneyW(goalBite)}>
+        <div className="space-y-2 mt-3">
+          {goals.filter(g=>g.enrolled).map((g) => (
+            <div key={g.id} className="flex items-center gap-2.5 text-[13px]">
+              <g.icon size={15} className="text-neutral-500" /><span className="text-neutral-600">{g.label}</span>
+              <span className="ml-auto text-neutral-500 tabular-nums">{moneyW(g.monthly)}/mo</span>
+            </div>
+          ))}
+        </div>
+      </Block>
+      <div className="rounded-2xl p-4 mb-5 border border-neutral-900 bg-neutral-900 text-white">
+        <div className="flex items-center gap-2 text-white/60 text-[11px] font-bold tracking-[.14em] uppercase mb-1"><Sparkles size={14}/> Raw Liquid Runway</div>
+        <div className="text-white text-[34px] font-extrabold tracking-tight tabular-nums">{moneyW(runway)}</div>
+        <div className="text-white/55 text-[13px]">Fluid cash for the month — this powers your <b className="text-white">{money(runway / DAYS_LEFT)}/day</b> allowance.</div>
+      </div>
+      <button onClick={onDone}
+        className="w-full rounded-xl py-3.5 font-semibold text-white flex items-center justify-center gap-2 bg-neutral-900 hover:bg-neutral-800 transition">
+        Enter Monium <ArrowR size={18} sw={2.5} />
+      </button>
+    </div>
+  );
+}
+function Block({ icon: I, title, badge, amount, children }) {
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white p-4 mb-3 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+      <div className="flex items-center gap-2.5">
+        <div className="w-9 h-9 rounded-lg grid place-items-center bg-neutral-100 text-neutral-700"><I size={17} /></div>
+        <div><div className="text-neutral-900 text-[14px] font-semibold leading-tight">{title}</div>
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-500">{badge}</span></div>
+        <div className="ml-auto text-neutral-900 font-bold tabular-nums">{amount}</div>
+      </div>{children}
+    </div>
+  );
+}
+
+/* ============================================================== */
+/*  HOME — Safe-to-Spend dashboard                                */
+/* ============================================================== */
+function Dashboard({ daily, spent, streak, goalBite, txns }) {
+  const [showCalc, setShowCalc] = useState(false);
+  const remaining = daily - spent;
+  const over = remaining < 0;
+  const ratio = remaining / (daily || 1);
+  const warn = !over && ratio < 0.25;
+  const display = useCountUp(Math.abs(remaining));
+
+  return (
+    <div className="px-5 pt-2 pb-28 anim-fadeUp">
+      <div className="flex items-center justify-between mb-4">
+        <div><div className="text-neutral-400 text-[13px]">Good morning,</div>
+          <div className="text-neutral-900 font-bold text-lg tracking-tight flex items-center gap-1.5 serif">Alex</div></div>
+        <Mark size={36} />
+      </div>
+
+      <div className="relative grid place-items-center mt-1 mb-3">
+        <button onClick={() => setShowCalc(v=>!v)} className="relative w-[224px] h-[224px] grid place-items-center">
+          <Ring pct={over ? 1 : spent / (daily || 1)} warn={warn} />
+          <div className="relative text-center">
+            <div className="text-neutral-400 text-[11px] font-semibold tracking-[.14em] uppercase mb-1">{over ? "Over budget" : "Safe to spend"}</div>
+            <div className="font-extrabold tracking-tight tabular-nums leading-none text-neutral-900" style={{ fontSize: 44 }}>{over ? "-" : ""}{money(display)}</div>
+            <div className="text-neutral-400 text-[12px] mt-1.5">{over ? `Daily limit was ${money(daily)}` : `of ${money(daily)} today`}</div>
+          </div>
+        </button>
+        <div className="-mt-1 text-[12px] text-neutral-400 flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-neutral-900"/>Resets in 8h 12m · tap for math</div>
+      </div>
+
+      {showCalc && (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4 mb-3 text-[13px] anim-fadeUp shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+          <div className="text-neutral-400 text-[11px] font-bold tracking-[.14em] uppercase mb-2">How this number is built</div>
+          {[["Monthly income", moneyW(INCOME)],["− Fixed bills", "-"+moneyW(FIXED)],["− Safety buffer","-"+moneyW(BUFFER)],["− Goal vaults","-"+moneyW(goalBite)],["− Escrow (next 7d)","-"+moneyW(ESCROW)]].map(([l,v]) => (
+            <div key={l} className="flex justify-between py-1 text-neutral-600"><span>{l}</span><span className="tabular-nums">{v}</span></div>
+          ))}
+          <div className="border-t border-neutral-200 mt-1.5 pt-2 flex justify-between text-neutral-900 font-semibold"><span>÷ {DAYS_LEFT} days left</span><span className="tabular-nums">{money(daily)}/day</span></div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-3 gap-2.5 mb-4">
+        <Tool icon={Shield} label="Escrow" val={moneyW(ESCROW)} sub="protected" />
+        <Tool icon={Wallet} label="Buffer" val={moneyW(BUFFER)} sub="reserve" />
+        <Tool icon={Bell} label="Nudge" val="ON" sub="daily SMS" />
+      </div>
+
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4 mb-3 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl grid place-items-center bg-neutral-900 text-white"><Flame size={22} /></div>
+          <div><div className="text-neutral-900 font-bold text-[17px] leading-tight tabular-nums">{streak}-day streak {over && <span className="text-neutral-400 text-xs font-semibold">· cooling down</span>}</div>
+            <div className="text-neutral-400 text-[12.5px]">{over ? "Log carefully to keep it alive." : "Under budget every day this week."}</div></div>
+        </div>
+        <div className="flex gap-1.5 mt-3.5">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className={`flex-1 h-7 rounded-md grid place-items-center ${i < 6 ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-300"}`}><Flame size={13} /></div>
+          ))}
+        </div>
+      </div>
+
+      <div className="text-neutral-900 font-semibold text-[15px] mb-2.5 mt-5">Today</div>
+      <div className="rounded-2xl border border-neutral-200 bg-white divide-y divide-neutral-100 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+        {txns.length === 0 && <div className="px-4 py-5 text-center text-neutral-400 text-[13px]">Nothing logged yet — tap <Plus size={13} className="inline -mt-0.5"/> to add a purchase.</div>}
+        {txns.map((t, i) => (
+          <div key={i} className="flex items-center gap-3 px-4 py-3 anim-fadeIn">
+            <div className="w-9 h-9 rounded-lg grid place-items-center bg-neutral-100 text-neutral-700"><t.icon size={16} /></div>
+            <div className="text-neutral-900 text-[14px] font-medium">{t.label}</div>
+            <div className="ml-auto text-neutral-900 font-semibold tabular-nums text-[14px]">-{money(t.amt)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+const Tool = ({ icon: I, label, val, sub }) => (
+  <div className="rounded-xl border border-neutral-200 bg-white p-3 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+    <I size={16} className="text-neutral-500 mb-1.5" />
+    <div className="text-neutral-900 text-[15px] font-bold tabular-nums leading-none">{val}</div>
+    <div className="text-neutral-400 text-[11px] mt-1">{label} · {sub}</div>
+  </div>
+);
+
+/* ============================================================== */
+/*  VAULTS                                                        */
+/* ============================================================== */
+function Vaults({ goals, onToggle, daily, onAddGoal }) {
+  return (
+    <div className="px-5 pt-2 pb-28 anim-fadeUp">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-neutral-900 text-[22px] font-bold tracking-tight serif">Goal Vaults</h2>
+        <button onClick={onAddGoal} className="text-[12px] font-semibold px-3 py-1.5 rounded-full bg-neutral-900 text-white flex items-center gap-1"><Plus size={14}/> Add</button>
+      </div>
+      <p className="text-neutral-400 text-[13px] mb-4">Only <b className="text-neutral-700">enrolled</b> vaults bite into your {money(daily)}/day.</p>
+      <div className="space-y-3">
+        {goals.map((g) => {
+          const pct = clamp(Math.round((g.saved / g.target) * 100), 0, 100);
+          return (
+            <div key={g.id} className={`rounded-2xl border p-4 transition shadow-[0_1px_2px_rgba(0,0,0,.04)] ${g.enrolled ? "border-neutral-900/15 bg-white" : "border-neutral-200 bg-neutral-50"}`}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl grid place-items-center bg-neutral-100 text-neutral-700"><g.icon size={18} /></div>
+                <div className="min-w-0">
+                  <div className="text-neutral-900 font-semibold text-[15px] leading-tight">{g.label}</div>
+                  <div className="text-neutral-400 text-[12px] tabular-nums">{moneyW(g.saved)} / {moneyW(g.target)} · {moneyW(g.monthly)}/mo</div>
+                </div>
+                <button onClick={() => onToggle(g.id)} aria-label="toggle"
+                  className={`ml-auto w-11 h-6 rounded-full p-0.5 transition ${g.enrolled ? "bg-neutral-900" : "bg-neutral-200"}`}>
+                  <div className={`w-5 h-5 rounded-full bg-white transition-transform ${g.enrolled ? "translate-x-5" : ""}`} />
+                </button>
+              </div>
+              <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
+                <div className="h-full rounded-full bg-neutral-900" style={{ width: pct + "%", transition: "width .6s ease" }} />
+              </div>
+              <div className="flex justify-between mt-2">
+                {[25,50,75,100].map(m => (
+                  <span key={m} className={`text-[11px] tabular-nums flex items-center gap-1 ${pct>=m ? "text-neutral-900" : "text-neutral-300"}`}>
+                    {pct>=m && <Check size={11} sw={3}/>}{m}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-4 rounded-2xl border border-neutral-200 bg-white p-4 flex items-start gap-3 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+        <div className="w-9 h-9 rounded-lg grid place-items-center bg-neutral-900 text-white shrink-0"><MessageC size={17}/></div>
+        <p className="text-neutral-500 text-[13px] leading-snug">Tell Monium <i className="text-neutral-800">"save $5,000 for a car by December"</i> in chat and I'll build the vault for you.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================== */
+/*  CHAT                                                          */
+/* ============================================================== */
+const CHIPS = ["Can I buy $80 sneakers?", "Save $5,000 for a car by December", "I spent $40 on dinner", "How is my Safe-to-Spend calculated?"];
+function Chat({ messages, typing, onSend }) {
+  const [text, setText] = useState("");
+  const listRef = useRef(null);
+  useEffect(() => { const el = listRef.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }); }, [messages, typing]);
+  const send = (t) => { const v = (t ?? text).trim(); if (!v) return; onSend(v); setText(""); };
+  return (
+    <div className="flex flex-col h-full anim-fadeIn">
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-neutral-200">
+        <Mark size={34} />
+        <div><div className="text-neutral-900 font-semibold text-[15px]">Monium</div><div className="text-neutral-500 text-xs flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-neutral-900"/>online</div></div>
+      </div>
+      <div ref={listRef} className="flex-1 overflow-y-auto no-scroll px-5 py-4 space-y-2.5">
+        {messages.map((m, i) => (
+          m.from === "user"
+            ? <div key={i} className="max-w-[82%] ml-auto rounded-2xl rounded-br-md bg-neutral-900 text-white px-3.5 py-2.5 text-[13.5px] font-medium anim-fadeUp">{m.text}</div>
+            : <div key={i} className="max-w-[86%] rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-neutral-800 text-[13.5px] leading-snug anim-fadeUp" dangerouslySetInnerHTML={{ __html: m.text }} />
+        ))}
+        {typing && (
+          <div className="dotpulse max-w-[40%] rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-3 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-neutral-500"/><span className="w-1.5 h-1.5 rounded-full bg-neutral-500"/><span className="w-1.5 h-1.5 rounded-full bg-neutral-500"/>
+          </div>
+        )}
+      </div>
+      <div className="px-4 pb-2 flex gap-2 overflow-x-auto no-scroll">
+        {CHIPS.map((c) => (
+          <button key={c} onClick={() => send(c)} className="shrink-0 text-[12px] px-3 py-1.5 rounded-full border border-neutral-200 bg-white text-neutral-600 hover:border-neutral-900 hover:text-neutral-900 transition">{c}</button>
+        ))}
+      </div>
+      <div className="px-4 pb-24 pt-1 flex items-center gap-2">
+        <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
+          placeholder="Ask Monium anything…" className="flex-1 rounded-full bg-neutral-100 border border-neutral-200 px-4 py-3 text-neutral-900 text-[14px] placeholder-neutral-400 outline-none focus:border-neutral-900" />
+        <button onClick={() => send()} className="w-11 h-11 rounded-full grid place-items-center text-white bg-neutral-900"><Send size={18}/></button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================== */
+/*  TIPS                                                          */
+/* ============================================================== */
+function Tips({ daily }) {
+  const [toggles, setToggles] = useState({ nudge: true, roundup: true });
+  const TIPS = [
+    { icon: Sparkles, t: "Safe-to-Spend, simply", d: "Income minus bills, buffer, vault savings and upcoming escrow — divided by days left. What's left is yours, guilt-free." },
+    { icon: Shield, t: "Escrow protects bills first", d: "Bills due in the next 7 days are quietly fenced off, so your daily number is what's truly safe." },
+    { icon: Flame, t: "Streaks reward consistency", d: "Stay under your daily number and the streak grows. It caps at 60 days so old data can't inflate it." },
+    { icon: Repeat, t: "Variable income, smoothed", d: "Monium averages irregular pay conservatively, so one big week doesn't trick you into overspending the next." },
+  ];
+  return (
+    <div className="px-5 pt-2 pb-28 anim-fadeUp">
+      <h2 className="text-neutral-900 text-[22px] font-bold tracking-tight mb-1 serif">Tips & Tools</h2>
+      <p className="text-neutral-400 text-[13px] mb-4">Small habits that keep your {money(daily)}/day honest.</p>
+      <div className="space-y-3 mb-5">
+        {TIPS.map((x) => (
+          <div key={x.t} className="rounded-2xl border border-neutral-200 bg-white p-4 flex gap-3 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+            <div className="w-10 h-10 rounded-xl grid place-items-center shrink-0 bg-neutral-100 text-neutral-800"><x.icon size={18}/></div>
+            <div><div className="text-neutral-900 font-semibold text-[14.5px] mb-0.5">{x.t}</div><div className="text-neutral-500 text-[13px] leading-snug">{x.d}</div></div>
+          </div>
+        ))}
+      </div>
+      <div className="text-neutral-400 text-[11px] font-bold tracking-[.14em] uppercase mb-2">Automations</div>
+      <div className="rounded-2xl border border-neutral-200 bg-white divide-y divide-neutral-100 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+        {[["nudge",Bell,"Daily nudge SMS","Warn me if I'm trending over"],["roundup",Wallet,"Round-up to vault","Spare change tops up goals"]].map(([k,Ic,t,d]) => (
+          <div key={k} className="flex items-center gap-3 px-4 py-3.5">
+            <Ic size={18} className="text-neutral-500"/>
+            <div className="min-w-0"><div className="text-neutral-900 text-[14px] font-medium">{t}</div><div className="text-neutral-400 text-[12px]">{d}</div></div>
+            <button onClick={() => setToggles(s => ({ ...s, [k]: !s[k] }))}
+              className={`ml-auto w-11 h-6 rounded-full p-0.5 transition shrink-0 ${toggles[k] ? "bg-neutral-900" : "bg-neutral-200"}`}>
+              <div className={`w-5 h-5 rounded-full bg-white transition-transform ${toggles[k] ? "translate-x-5" : ""}`} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================== */
+/*  Log bottom sheet                                             */
+/* ============================================================== */
+const QUICK = [{ label: "Coffee", amt: 6, icon: Coffee }, { label: "Lunch", amt: 14, icon: Utensils }, { label: "Shopping", amt: 38, icon: Bag }];
+function LogSheet({ onClose, onLog }) {
+  const [label, setLabel] = useState("");
+  const [amt, setAmt] = useState("");
+  const [icon, setIcon] = useState(() => Bag);
+  const submit = () => { const a = parseFloat(amt); if (!a || a <= 0) return; onLog({ label: label.trim() || "Purchase", amt: a, icon }); };
+  return (
+    <div className="absolute inset-0 z-40 flex items-end">
+      <div className="absolute inset-0 bg-black/40 anim-fadeIn" onClick={onClose} />
+      <div className="relative w-full rounded-t-3xl bg-white border-t border-neutral-200 p-5 pb-7 anim-sheet shadow-[0_-20px_50px_-20px_rgba(0,0,0,.25)]">
+        <div className="w-10 h-1 rounded-full bg-neutral-200 mx-auto mb-4" />
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-neutral-900 font-bold text-lg tracking-tight">Log a purchase</div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full grid place-items-center bg-neutral-100 text-neutral-500 hover:bg-neutral-200"><X size={16}/></button>
+        </div>
+        <div className="flex gap-2 mb-4">
+          {QUICK.map((q) => (
+            <button key={q.label} onClick={() => { setLabel(q.label); setAmt(String(q.amt)); setIcon(() => q.icon); }}
+              className="flex-1 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 transition p-3 text-center">
+              <q.icon size={18} className="mx-auto text-neutral-700 mb-1.5" />
+              <div className="text-neutral-800 text-[12px] font-medium">{q.label}</div>
+              <div className="text-neutral-400 text-[11px] tabular-nums">{money(q.amt, 0)}</div>
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-2.5 mb-4">
+          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="What did you buy?"
+            className="flex-1 rounded-xl bg-neutral-100 border border-neutral-200 px-4 py-3 text-neutral-900 text-[14px] placeholder-neutral-400 outline-none focus:border-neutral-900" />
+          <div className="relative w-28">
+            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 text-[14px]">$</span>
+            <input value={amt} onChange={(e) => setAmt(e.target.value.replace(/[^0-9.]/g, ""))} placeholder="0.00" inputMode="decimal"
+              className="w-full rounded-xl bg-neutral-100 border border-neutral-200 pl-7 pr-3 py-3 text-neutral-900 text-[14px] placeholder-neutral-400 outline-none focus:border-neutral-900 tabular-nums" />
+          </div>
+        </div>
+        <button onClick={submit} disabled={!parseFloat(amt)}
+          className="w-full rounded-xl py-3.5 font-semibold text-white bg-neutral-900 hover:bg-neutral-800 transition disabled:opacity-30">Log purchase</button>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================== */
+/*  Join the beta — saves name + email via the shared backend     */
+/* ============================================================== */
+function BetaModal({ onClose }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState("idle"); // idle | saving | done | error
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    setErr("");
+    if (!name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { setErr("Enter your name and a valid email."); return; }
+    setStatus("saving");
+    try {
+      const be = window.MoniumBackend;
+      if (!be) throw new Error("Backend not loaded.");
+      await be.saveSignup(name, email);
+      setStatus("done");
+    } catch (e) {
+      setStatus("error");
+      setErr(e && e.code === "NO_CONFIG" ? "Add your Supabase keys in js/config.js to save signups." : (e.message || "Something went wrong. Try again."));
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4">
+      <div className="absolute inset-0 bg-black/40 anim-fadeIn" onClick={onClose} />
+      <div className="relative w-full max-w-sm rounded-3xl bg-white border border-neutral-200 p-6 shadow-2xl anim-fadeUp">
+        <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full grid place-items-center bg-neutral-100 text-neutral-500 hover:bg-neutral-200"><X size={16}/></button>
+        {status === "done" ? (
+          <div className="text-center py-4">
+            <div className="mx-auto mb-3 w-12 h-12 rounded-full grid place-items-center bg-neutral-900 text-white"><Check size={22} sw={3}/></div>
+            <div className="text-neutral-900 font-bold text-xl serif mb-1">You're on the list</div>
+            <p className="text-neutral-500 text-[14px]">We'll email {email} when your spot opens.</p>
+            <button onClick={onClose} className="mt-5 w-full rounded-xl py-3 font-semibold text-white bg-neutral-900">Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 mb-1"><Mark size={28}/><span className="font-bold text-lg serif text-neutral-900">Join the beta</span></div>
+            <p className="text-neutral-500 text-[14px] mb-5">Free during beta. No credit card. We'll save your spot.</p>
+            <label className="block text-[12px] font-semibold text-neutral-500 mb-1">Name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Alex Rivera"
+              className="w-full mb-3 rounded-xl bg-neutral-100 border border-neutral-200 px-4 py-3 text-neutral-900 text-[14px] placeholder-neutral-400 outline-none focus:border-neutral-900" />
+            <label className="block text-[12px] font-semibold text-neutral-500 mb-1">Email</label>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" type="email"
+              onKeyDown={(e) => e.key === "Enter" && submit()}
+              className="w-full rounded-xl bg-neutral-100 border border-neutral-200 px-4 py-3 text-neutral-900 text-[14px] placeholder-neutral-400 outline-none focus:border-neutral-900" />
+            {err && <p className="text-[13px] text-red-600 mt-2">{err}</p>}
+            <button onClick={submit} disabled={status === "saving"}
+              className="mt-5 w-full rounded-xl py-3.5 font-semibold text-white bg-neutral-900 hover:bg-neutral-800 transition disabled:opacity-50">
+              {status === "saving" ? "Saving…" : "Get early access"}
+            </button>
+            <p className="text-[11px] text-neutral-400 mt-3 text-center">Read-only access via Plaid · we never see your password.</p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ===== Error boundary ===== */
+class EB extends React.Component {
+  constructor(p) { super(p); this.state = { e: null }; }
+  static getDerivedStateFromError(e) { return { e }; }
+  render() {
+    if (this.state.e) return <pre style={{ color: "#b91c1c", padding: 24, whiteSpace: "pre-wrap", font: "13px ui-monospace,monospace" }}>{String(this.state.e.stack || this.state.e)}</pre>;
+    return this.props.children;
+  }
+}
+
+/* ============================================================== */
+/*  App                                                           */
+/* ============================================================== */
+const INITIAL_GOALS = [
+  { id: 1, label: "Japan Trip", saved: 1240, target: 4000, monthly: 300, enrolled: true, icon: Plane },
+  { id: 2, label: "Emergency Fund", saved: 900, target: 1500, monthly: 150, enrolled: true, icon: Shield },
+];
+const STEPS = [["connect", "Connect"], ["review", "Review"], ["app", "Live"]];
+
+function App() {
+  const [phase, setPhase] = useState("connect");
+  const [tab, setTab] = useState("home");
+  const [goals, setGoals] = useState(INITIAL_GOALS);
+  const [spent, setSpent] = useState(0);
+  const [txns, setTxns] = useState([]);
+  const [streak] = useState(12);
+  const [sheet, setSheet] = useState(false);
+  const [betaOpen, setBetaOpen] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [messages, setMessages] = useState([{ from: "bot", text: "Hey 👋 I'm Monium. Ask me if you can afford something, set a savings goal, or log a purchase — I'll update your numbers live." }]);
+  const [typing, setTyping] = useState(false);
+
+  const goalBite = goals.filter(g => g.enrolled).reduce((s, g) => s + g.monthly, 0);
+  const daily = dailyFromBite(goalBite);
+  const remaining = daily - spent;
+
+  const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2400); };
+  const reset = () => { setPhase("connect"); setTab("home"); setGoals(INITIAL_GOALS); setSpent(0); setTxns([]); setSheet(false); setMessages(messages.slice(0,1)); };
+
+  const logTxn = (t) => { setSpent(s => s + t.amt); setTxns(x => [t, ...x]); flash((remaining - t.amt) < 0 ? `Logged ${money(t.amt)} · you're over today` : `Logged ${money(t.amt)} · Safe-to-Spend updated`); };
+  const toggleGoal = (id) => setGoals(gs => gs.map(g => g.id === id ? { ...g, enrolled: !g.enrolled } : g));
+  const addGoal = (g) => { setGoals(gs => [...gs, { ...g, id: Date.now() }]); flash(`Vault created · ${g.label}`); };
+
+  const detectMonthsToDec = () => { const m = new Date().getMonth(); const d = (11 - m); return d > 0 ? d : 12; };
+  const reply = (text) => setMessages(ms => [...ms, { from: "bot", text }]);
+
+  const handleUser = (text) => {
+    setMessages(ms => [...ms, { from: "user", text }]);
+    setTyping(true);
+    const lower = text.toLowerCase();
+    const amt = parseAmount(text);
+    setTimeout(() => {
+      setTyping(false);
+      if (/spent|paid|bought/.test(lower) && amt) {
+        const label = /coffee/.test(lower) ? "Coffee" : /dinner|lunch|food|eat/.test(lower) ? "Dining" : /uber|ride|taxi/.test(lower) ? "Transport" : "Purchase";
+        const icon = label === "Coffee" ? Coffee : label === "Dining" ? Utensils : Bag;
+        logTxn({ label, amt, icon });
+        const nr = remaining - amt;
+        reply(nr < 0
+          ? `Logged ${money(amt)} for ${label.toLowerCase()}. That tips you <b>${money(-nr)} over</b> today — your streak is now cooling down. Want to pull from a vault?`
+          : `Logged ${money(amt)} for ${label.toLowerCase()}. ✅ You've got <b>${money(nr)}</b> left of today's ${money(daily)}.`);
+      } else if (/(save|saving|goal|put away)/.test(lower) && amt) {
+        const months = /dec/.test(lower) ? detectMonthsToDec() : (lower.match(/(\d+)\s*month/) ? parseInt(lower.match(/(\d+)\s*month/)[1]) : 12);
+        const monthly = Math.round(amt / months);
+        const label = /car/.test(lower) ? "Car Fund" : /house|home|down ?payment/.test(lower) ? "Home Fund" : /trip|travel|vacation|japan/.test(lower) ? "Trip Fund" : "New Goal";
+        const icon = /car/.test(lower) ? Car : /trip|travel|vacation/.test(lower) ? Plane : Target;
+        addGoal({ label, saved: 0, target: amt, monthly, enrolled: true, icon });
+        const newDaily = dailyFromBite(goalBite + monthly);
+        reply(`Done 🎯 I built <b>${label}</b> — tucking away <b>${moneyW(monthly)}/mo</b> for ${months} months to hit ${moneyW(amt)}.<br/><br/>That moves your Safe-to-Spend to <b>${money(newDaily)}/day</b>. ${monthly > 500 ? "That's aggressive — want me to stretch the timeline?" : "Check the Vaults tab to tweak it."}`);
+      } else if (/(can i|afford|should i)/.test(lower) && amt) {
+        const weeklyFlex = daily * 7 - spent;
+        reply(amt <= weeklyFlex
+          ? `✓ <b>Yes</b> — ${money(amt)} fits. It's inside this week's flex of about ${money(Math.max(0, weeklyFlex))}, and you'll keep your ${streak}-day streak. Want me to log it?`
+          : `I'd hold off — ${money(amt)} is about <b>${(amt / daily).toFixed(1)}× your daily allowance</b> of ${money(daily)}. I can spread it over a few days or pull from a vault. Want a plan?`);
+      } else if (/(safe.?to.?spend|calculat|how much|how do you|formula)/.test(lower)) {
+        reply(`Your daily number = (income − fixed bills − buffer − goal vaults − escrow) ÷ days left.<br/><br/>Right now: ${moneyW(INCOME)} − ${moneyW(FIXED)} − ${moneyW(BUFFER)} − ${moneyW(goalBite)} = <b>${moneyW(INCOME-FIXED-BUFFER-goalBite)}</b>, ÷ ${DAYS_LEFT} days = <b>${money(daily)}/day</b>.`);
+      } else {
+        reply(`I can help you <b>check affordability</b>, <b>set a savings goal</b>, or <b>log a spend</b>. Try one of the chips below 👇`);
+      }
+    }, 950);
+  };
+
+  return (
+    <div className={`w-full flex flex-col items-center ${EMBED ? "pt-20 pb-4" : "min-h-screen justify-start py-8 px-4"}`}>
+      {CHROME && (
+        <div className="w-full max-w-[430px] flex items-center justify-between mb-6 px-1">
+          <div className="flex items-center gap-2 text-neutral-900 font-bold text-xl serif"><Mark size={28}/> Monium</div>
+          <button onClick={() => setBetaOpen(true)} className="px-4 py-2 rounded-full bg-neutral-900 text-white text-[13px] font-semibold hover:bg-neutral-800 transition">Join Beta</button>
+        </div>
+      )}
+
+      {CHROME && (
+        <div className="flex items-center gap-1 p-1 rounded-full bg-white border border-neutral-200 mb-5 shadow-[0_1px_2px_rgba(0,0,0,.04)]">
+          {STEPS.map(([k, lbl], i) => (
+            <button key={k} onClick={() => setPhase(k)}
+              className={`px-4 py-2 rounded-full text-[13px] font-semibold transition-all ${phase === k ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900"}`}>
+              <span className="opacity-50 mr-1">{i + 1}</span>{lbl}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="relative w-[390px] max-w-full">
+        <div className="relative rounded-[54px] bg-neutral-900 p-3 shadow-[0_40px_90px_-30px_rgba(0,0,0,.45)]">
+          <div className="relative rounded-[44px] overflow-hidden bg-[#fbfbfb] h-[760px] flex flex-col">
+            <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-28 h-7 bg-neutral-900 rounded-full z-30" />
+            <StatusBar />
+
+            <div className="flex-1 overflow-hidden relative flex flex-col">
+              {phase === "connect" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenConnect onDone={() => setPhase("review")} /></div>}
+              {phase === "review" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenReview goals={goals} onDone={() => { setPhase("app"); setTab("home"); }} /></div>}
+              {phase === "app" && (
+                <>
+                  <div className="flex-1 overflow-y-auto no-scroll">
+                    {tab === "home" && <Dashboard daily={daily} spent={spent} streak={streak} goalBite={goalBite} txns={txns} />}
+                    {tab === "vaults" && <Vaults goals={goals} daily={daily} onToggle={toggleGoal} onAddGoal={() => setTab("chat")} />}
+                    {tab === "chat" && <Chat messages={messages} typing={typing} onSend={handleUser} />}
+                    {tab === "tips" && <Tips daily={daily} />}
+                  </div>
+
+                  {toast && (
+                    <div className="absolute left-1/2 -translate-x-1/2 bottom-28 z-40 anim-fadeUp">
+                      <div className="px-4 py-2.5 rounded-full bg-neutral-900 text-white text-[13px] font-semibold shadow-xl flex items-center gap-2"><Check size={15} sw={3} />{toast}</div>
+                    </div>
+                  )}
+                  {tab === "home" && !sheet && (
+                    <button onClick={() => setSheet(true)}
+                      className="absolute right-5 bottom-24 z-30 w-14 h-14 rounded-full grid place-items-center text-white shadow-[0_12px_30px_-6px_rgba(0,0,0,.4)] bg-neutral-900 hover:scale-105 active:scale-95 transition"><Plus size={26} sw={2.5} /></button>
+                  )}
+
+                  <div className="absolute bottom-0 inset-x-0 z-20 px-6 pt-3 pb-6 bg-gradient-to-t from-[#fbfbfb] via-[#fbfbfb]/95 to-transparent">
+                    <div className="flex items-center justify-between">
+                      {[["home", HomeI], ["vaults", Wallet], ["chat", MessageC], ["tips", Bulb]].map(([k, Ic]) => (
+                        <button key={k} onClick={() => setTab(k)} className={`flex flex-col items-center gap-1 transition ${tab === k ? "text-neutral-900" : "text-neutral-400 hover:text-neutral-600"}`}>
+                          <Ic size={22} />
+                          <span className={`w-1 h-1 rounded-full ${tab === k ? "bg-neutral-900" : "bg-transparent"}`} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {sheet && <LogSheet onClose={() => setSheet(false)} onLog={(t) => { logTxn(t); setSheet(false); }} />}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {CHROME && <button onClick={reset} className="mt-5 text-neutral-400 hover:text-neutral-700 text-[13px] font-medium transition">↺ Reset demo</button>}
+
+      {betaOpen && <BetaModal onClose={() => setBetaOpen(false)} />}
+    </div>
+  );
+}
+
+const root = document.getElementById("root");
+root.dataset.mounted = "1";
+ReactDOM.createRoot(root).render(<EB><App /></EB>);
+</script>
+
+<script>
+  /* compile the React source with the CLASSIC JSX runtime (uses global React.createElement) and run it */
+  (function () {
+    try {
+      var src = document.getElementById("app-src").textContent;
+      var out = Babel.transform(src, { presets: [["react", { runtime: "classic" }]] }).code;
+      (0, eval)(out);
+    } catch (e) {
+      console.error(e);
+      var r = document.getElementById("root");
+      if (r && !r.dataset.mounted) r.innerHTML = '<pre style="color:#b91c1c;padding:24px;white-space:pre-wrap;font:13px ui-monospace,monospace">⚠ ' + (e && (e.message || e)) + '</pre>';
+    }
+  })();
+</script>
+</body>
+</html>
