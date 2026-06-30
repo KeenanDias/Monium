@@ -1,5 +1,12 @@
 /* Landing-page interactions: sticky-nav shadow, reveal-on-scroll, beta signup. */
 (function () {
+  /* always open at the top — iOS otherwise restores/jumps toward the embedded app iframe */
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+  if (!location.hash) {
+    window.scrollTo(0, 0);
+    addEventListener("load", function () { window.scrollTo(0, 0); });
+  }
+
   /* nav shadow on scroll */
   var header = document.getElementById("header");
   if (header) {
