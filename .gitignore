@@ -1,6 +1,7 @@
-# --- secrets / local runtime config ---
-# Copy js/config.example.js -> js/config.js and put your keys there.
-js/config.js
+# --- secrets / local config ---
+# Note: js/config.js is committed on purpose — it only holds the Supabase
+# *publishable* key, which is meant to be public (browser-safe). Never put a
+# service_role / secret key in this front-end.
 .env
 .env.local
 
