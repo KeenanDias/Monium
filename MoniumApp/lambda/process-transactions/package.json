@@ -1,0 +1,9 @@
+{
+  "name": "monium-process-transactions-lambda",
+  "version": "1.0.0",
+  "description": "Process transactions and calculate safe-to-spend for Monium iOS app",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.1400.0"
+  }
+}

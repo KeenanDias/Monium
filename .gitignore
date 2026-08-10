@@ -5,6 +5,12 @@
 .env
 .env.local
 
+# AWS backend (MoniumApp/) — account IDs, key pairs, downloaded IAM CSVs
+.env-aws
+*_accessKeys.csv
+credentials.csv
+lambda-trust-policy.json
+
 # --- editor / OS ---
 .vscode/
 .idea/

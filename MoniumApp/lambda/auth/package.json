@@ -1,0 +1,10 @@
+{
+  "name": "monium-auth-lambda",
+  "version": "1.0.0",
+  "description": "Authentication Lambda for Monium iOS app",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.1400.0",
+    "bcryptjs": "^2.4.3"
+  }
+}

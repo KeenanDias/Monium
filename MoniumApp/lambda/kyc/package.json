@@ -1,0 +1,9 @@
+{
+  "name": "monium-kyc-lambda",
+  "version": "1.0.0",
+  "description": "KYC Lambda for Monium iOS app",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.1400.0"
+  }
+}
