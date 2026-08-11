@@ -3,192 +3,279 @@ const dynamodb = new AWS.DynamoDB.DocumentClient();
 const secretsManager = new AWS.SecretsManager();
 
 const USERS_TABLE = "MoniumUsers";
-const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
-const PLAID_API_URL = "https://sandbox.plaid.com";
 
-async function getSecrets() {
-  try {
-    const openaiSecret = await secretsManager
-      .getSecretValue({
-        SecretId: "monium/openai-api-key",
-      })
-      .promise();
+// Sandbox by default. Switch to https://production.plaid.com only after
+// Plaid approves production access.
+const PLAID_API_URL = process.env.PLAID_API_URL || "https://sandbox.plaid.com";
 
-    const plaidSecret = await secretsManager
-      .getSecretValue({
-        SecretId: "monium/plaid-secret",
-      })
-      .promise();
+const LOOKBACK_DAYS = 90;
+const DAYS_PER_MONTH = 30.44;
 
-    return {
-      openaiKey: openaiSecret.SecretString,
-      plaidSecret: JSON.parse(plaidSecret.SecretString).secret,
-    };
-  } catch (error) {
-    console.error("Failed to fetch secrets:", error);
-    throw error;
+// Plaid's personal_finance_category.primary values, grouped into the buckets
+// safe-to-spend actually cares about. Anything unmapped falls through to
+// discretionary, which is the conservative choice - it lowers the number
+// rather than inflating it.
+const EXCLUDED_CATEGORIES = new Set([
+  "INCOME",
+  "TRANSFER_IN",
+  "TRANSFER_OUT", // moving money between your own accounts isn't spending
+]);
+
+// Multiply a recurring stream's per-occurrence amount by this to get its
+// monthly cost.
+const FREQUENCY_TO_MONTHLY = {
+  WEEKLY: 52 / 12,
+  BIWEEKLY: 26 / 12,
+  SEMI_MONTHLY: 2,
+  MONTHLY: 1,
+  ANNUALLY: 1 / 12,
+};
+
+async function getPlaidCredentials() {
+  const secret = await secretsManager
+    .getSecretValue({ SecretId: "monium/plaid-secret" })
+    .promise();
+
+  const parsed = JSON.parse(secret.SecretString);
+  const clientId = parsed.client_id || process.env.PLAID_CLIENT_ID;
+
+  if (!clientId || !parsed.secret) {
+    throw new Error("monium/plaid-secret must contain client_id and secret");
   }
+
+  return { clientId, secret: parsed.secret };
 }
 
-// Categorize a single transaction using ChatGPT
-async function categorizeTransaction(transaction, openaiKey) {
-  try {
-    const response = await fetch(OPENAI_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${openaiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-3.5-turbo",
-        messages: [
-          {
-            role: "user",
-            content: `Categorize this transaction in exactly one word: "${transaction.name}" (Amount: $${Math.abs(transaction.amount)}). Only respond with one of these categories: Bill, Subscription, Entertainment, Food, Transport, Healthcare, Shopping, Other`,
-          },
-        ],
-        max_tokens: 10,
-        temperature: 0,
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("OpenAI API error:", response.statusText);
-      return "Other"; // Default category on error
-    }
-
-    const data = await response.json();
-    const category = data.choices[0].message.content.trim();
-
-    // Validate category
-    const validCategories = [
-      "Bill",
-      "Subscription",
-      "Entertainment",
-      "Food",
-      "Transport",
-      "Healthcare",
-      "Shopping",
-      "Other",
-    ];
-    return validCategories.includes(category) ? category : "Other";
-  } catch (error) {
-    console.error("Error categorizing transaction:", error);
-    return "Other";
-  }
-}
-
-// Fetch transactions from Plaid
-async function getPlaidTransactions(accessToken, plaidClientId, plaidSecret) {
-  try {
-    // Get last 90 days of transactions
-    const endDate = new Date().toISOString().split("T")[0];
-    const startDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .split("T")[0];
-
-    const response = await fetch(`${PLAID_API_URL}/transactions/get`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        access_token: accessToken,
-        start_date: startDate,
-        end_date: endDate,
-        options: {
-          count: 500,
-          offset: 0,
-        },
-        client_id: plaidClientId,
-        secret: plaidSecret,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Plaid API error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.transactions || [];
-  } catch (error) {
-    console.error("Error fetching Plaid transactions:", error);
-    throw error;
-  }
-}
-
-// Calculate safe-to-spend based on income, expenses, and goals
-function calculateSafeToSpend(transactions, monthlyIncome, savingsGoal) {
-  // Group transactions by category
-  const categories = {
-    Bill: 0,
-    Subscription: 0,
-    Entertainment: 0,
-    Food: 0,
-    Transport: 0,
-    Healthcare: 0,
-    Shopping: 0,
-    Other: 0,
-  };
-
-  transactions.forEach((t) => {
-    if (t.category && categories.hasOwnProperty(t.category)) {
-      // Only count expenses (positive amounts)
-      if (t.amount > 0) {
-        categories[t.category] += t.amount;
-      }
-    }
+async function plaidRequest(path, payload, credentials) {
+  const response = await fetch(`${PLAID_API_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...payload,
+      client_id: credentials.clientId,
+      secret: credentials.secret,
+    }),
   });
 
-  // Calculate mandatory monthly spending (Bills + Subscriptions)
-  const mandatorySpending = categories.Bill + categories.Subscription;
+  const data = await response.json();
 
-  // Parse savings goal
-  const monthlySavings = parseFloat(savingsGoal) || 500;
+  if (!response.ok || data.error_code) {
+    throw new Error(
+      `Plaid ${path} failed: ${data.error_message || response.statusText}`,
+    );
+  }
 
-  // Calculate available for discretionary spending
-  const availableForSpending =
-    monthlyIncome - mandatorySpending - monthlySavings;
+  return data;
+}
 
-  // Safe to spend per day
-  const daysInMonth = 30;
-  const safeToSpendDaily = Math.max(0, availableForSpending / daysInMonth);
+function isoDaysAgo(days) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .split("T")[0];
+}
+
+// Plaid caps each response at 500, so page until we have them all
+async function getAllTransactions(accessToken, credentials) {
+  const transactions = [];
+  let total = null;
+
+  while (total === null || transactions.length < total) {
+    const page = await plaidRequest(
+      "/transactions/get",
+      {
+        access_token: accessToken,
+        start_date: isoDaysAgo(LOOKBACK_DAYS),
+        end_date: isoDaysAgo(0),
+        options: { count: 500, offset: transactions.length },
+      },
+      credentials,
+    );
+
+    total = page.total_transactions;
+    transactions.push(...page.transactions);
+
+    if (page.transactions.length === 0) break; // guard against a stuck cursor
+  }
+
+  return transactions;
+}
+
+function primaryCategory(item) {
+  return item.personal_finance_category?.primary || "OTHER";
+}
+
+function monthlyAmount(stream) {
+  const perOccurrence = Math.abs(
+    stream.average_amount?.amount ?? stream.last_amount?.amount ?? 0,
+  );
+
+  // UNKNOWN frequency means Plaid saw a pattern but couldn't pin the cadence.
+  // Treating it as monthly is the safest read.
+  return perOccurrence * (FREQUENCY_TO_MONTHLY[stream.frequency] ?? 1);
+}
+
+// Recurring outflows are the real definition of "committed" spending: Plaid
+// has seen these repeat, so they're obligations rather than one-off purchases.
+async function getCommittedSpending(accessToken, credentials) {
+  const { outflow_streams: outflows = [], inflow_streams: inflows = [] } =
+    await plaidRequest(
+      "/transactions/recurring/get",
+      { access_token: accessToken },
+      credentials,
+    );
+
+  const commitments = outflows
+    .filter((s) => s.is_active && !EXCLUDED_CATEGORIES.has(primaryCategory(s)))
+    .map((s) => ({
+      name: s.merchant_name || s.description,
+      category: primaryCategory(s),
+      frequency: s.frequency,
+      monthlyAmount: Math.round(monthlyAmount(s) * 100) / 100,
+    }));
+
+  // Plaid also detects recurring *income*, which is more trustworthy than a
+  // number the user typed from memory
+  const incomeStreams = inflows.filter(
+    (s) => s.is_active && primaryCategory(s) === "INCOME",
+  );
 
   return {
-    monthlyIncome: Math.round(monthlyIncome * 100) / 100,
-    categoryBreakdown: categories,
-    mandatorySpending: Math.round(mandatorySpending * 100) / 100,
-    monthlySavings: Math.round(monthlySavings * 100) / 100,
-    availableForSpending: Math.round(availableForSpending * 100) / 100,
-    safeToSpendDaily: Math.round(safeToSpendDaily * 100) / 100,
+    commitments,
+    monthlyCommitted: commitments.reduce((sum, c) => sum + c.monthlyAmount, 0),
+    detectedMonthlyIncome: incomeStreams.reduce(
+      (sum, s) => sum + monthlyAmount(s),
+      0,
+    ),
+    incomeStreams,
+  };
+}
+
+// Average monthly spend per category, for the dashboard breakdown. The lookback
+// covers ~3 months, so totals are scaled down to one month.
+function monthlySpendByCategory(transactions) {
+  const monthsCovered = LOOKBACK_DAYS / DAYS_PER_MONTH;
+  const totals = {};
+
+  transactions.forEach((t) => {
+    const category = primaryCategory(t);
+
+    // Plaid reports outflows as positive amounts
+    if (t.amount <= 0 || EXCLUDED_CATEGORIES.has(category)) return;
+
+    totals[category] = (totals[category] || 0) + t.amount;
+  });
+
+  Object.keys(totals).forEach((category) => {
+    totals[category] = Math.round((totals[category] / monthsCovered) * 100) / 100;
+  });
+
+  return totals;
+}
+
+// How many days until the user's next paycheck. Budgeting to the real pay
+// cycle is what makes the number feel right - a fixed 30 is wrong for anyone
+// paid weekly or biweekly.
+function daysUntilNextPayday(incomeStreams) {
+  const today = new Date();
+
+  const upcoming = incomeStreams
+    .map((s) => s.predicted_next_date)
+    .filter(Boolean)
+    .map((d) => Math.ceil((new Date(d) - today) / (24 * 60 * 60 * 1000)))
+    .filter((days) => days > 0);
+
+  if (upcoming.length > 0) return Math.min(...upcoming);
+
+  // No prediction available - fall back to the end of the current month
+  const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  return Math.max(1, Math.ceil((endOfMonth - today) / (24 * 60 * 60 * 1000)));
+}
+
+function monthlySavingsTarget(profile) {
+  if (profile.monthlySavings) return parseFloat(profile.monthlySavings);
+
+  // Derive from goal amount and target date when both are present
+  const goalAmount = parseFloat(profile.goalAmount ?? profile.goal);
+  if (isNaN(goalAmount)) return 0;
+
+  if (profile.goalTargetDate) {
+    const monthsRemaining = Math.max(
+      1,
+      (new Date(profile.goalTargetDate) - new Date()) /
+        (DAYS_PER_MONTH * 24 * 60 * 60 * 1000),
+    );
+    return goalAmount / monthsRemaining;
+  }
+
+  return goalAmount;
+}
+
+function monthlyIncomeFromProfile(profile) {
+  if (profile.monthlyIncome) return parseFloat(profile.monthlyIncome);
+
+  const income = parseFloat(profile.income);
+  if (isNaN(income)) return 0;
+
+  // Older records stored a single ambiguous "income" field. Treat it as annual
+  // only when the profile explicitly says so.
+  return profile.incomePeriod === "annual" ? income / 12 : income;
+}
+
+function calculateSafeToSpend(profile, committed, categoryBreakdown) {
+  // Prefer what Plaid actually observed hitting the account over a
+  // self-reported figure, which is usually pre-tax and from memory
+  const statedIncome = monthlyIncomeFromProfile(profile);
+  const monthlyIncome =
+    committed.detectedMonthlyIncome > 0
+      ? committed.detectedMonthlyIncome
+      : statedIncome;
+
+  const monthlySavings = monthlySavingsTarget(profile);
+  const availableForSpending =
+    monthlyIncome - committed.monthlyCommitted - monthlySavings;
+
+  const daysRemaining = daysUntilNextPayday(committed.incomeStreams);
+  const safeToSpendDaily = Math.max(0, availableForSpending / DAYS_PER_MONTH);
+
+  const round = (n) => Math.round(n * 100) / 100;
+
+  return {
+    monthlyIncome: round(monthlyIncome),
+    incomeSource:
+      committed.detectedMonthlyIncome > 0 ? "plaid_detected" : "user_reported",
+    statedMonthlyIncome: round(statedIncome),
+    monthlyCommitted: round(committed.monthlyCommitted),
+    commitments: committed.commitments,
+    monthlySavings: round(monthlySavings),
+    availableForSpending: round(availableForSpending),
+    daysUntilNextPayday: daysRemaining,
+    safeToSpendBeforePayday: round(Math.max(0, safeToSpendDaily * daysRemaining)),
+    categoryBreakdown,
+    safeToSpendDaily: round(safeToSpendDaily),
     calculatedAt: new Date().toISOString(),
   };
 }
 
 exports.handler = async (event) => {
-  console.log("Process Transactions Lambda invoked:", event);
+  console.log("Process Transactions Lambda invoked");
 
   try {
     const body = JSON.parse(event.body || "{}");
-    const { userId, plaidAccessToken, plaidClientId } = body;
+    const { userId, plaidAccessToken } = body;
 
-    if (!userId || !plaidAccessToken || !plaidClientId) {
+    if (!userId || !plaidAccessToken) {
       return {
         statusCode: 400,
         body: JSON.stringify({
-          error:
-            "Missing required fields: userId, plaidAccessToken, plaidClientId",
+          error: "Missing required fields: userId, plaidAccessToken",
         }),
       };
     }
 
-    // Get secrets
-    const secrets = await getSecrets();
+    const credentials = await getPlaidCredentials();
 
-    // Fetch user KYC data
     const userResult = await dynamodb
-      .get({
-        TableName: USERS_TABLE,
-        Key: { userId },
-      })
+      .get({ TableName: USERS_TABLE, Key: { userId } })
       .promise();
 
     if (!userResult.Item) {
@@ -198,46 +285,42 @@ exports.handler = async (event) => {
       };
     }
 
-    const user = userResult.Item;
-    if (!user.kyc) {
+    const profile = userResult.Item.profile || userResult.Item.kyc;
+
+    if (!profile) {
       return {
         statusCode: 400,
-        body: JSON.stringify({ error: "User must complete KYC first" }),
+        body: JSON.stringify({ error: "User must complete onboarding first" }),
       };
     }
 
-    // Fetch transactions from Plaid
-    const transactions = await getPlaidTransactions(
-      plaidAccessToken,
-      plaidClientId,
-      secrets.plaidSecret,
+    const [transactions, committed] = await Promise.all([
+      getAllTransactions(plaidAccessToken, credentials),
+      getCommittedSpending(plaidAccessToken, credentials),
+    ]);
+
+    console.log(
+      `Analyzed ${transactions.length} transactions, ` +
+        `${committed.commitments.length} recurring commitments`,
     );
 
-    // Categorize each transaction
-    console.log(`Categorizing ${transactions.length} transactions...`);
-    const categorizedTransactions = await Promise.all(
-      transactions.map(async (t) => ({
-        ...t,
-        category: await categorizeTransaction(t, secrets.openaiKey),
-      })),
-    );
-
-    // Calculate safe to spend
+    const categoryBreakdown = monthlySpendByCategory(transactions);
     const safeToSpend = calculateSafeToSpend(
-      categorizedTransactions,
-      user.kyc.income,
-      user.kyc.goal,
+      profile,
+      committed,
+      categoryBreakdown,
     );
 
-    // Store results in DynamoDB
+    // Store only the computed summary. Raw transactions stay at Plaid - keeping
+    // a copy adds risk without adding capability, and would blow past
+    // DynamoDB's 400KB item limit for heavy spenders.
     await dynamodb
       .update({
         TableName: USERS_TABLE,
         Key: { userId },
         UpdateExpression:
-          "SET transactions = :t, safeToSpend = :s, plaidAccessToken = :pat",
+          "SET safeToSpend = :s, plaidAccessToken = :pat REMOVE transactions",
         ExpressionAttributeValues: {
-          ":t": categorizedTransactions.slice(0, 100), // Store last 100 for DynamoDB limits
           ":s": safeToSpend,
           ":pat": plaidAccessToken,
         },

@@ -12,10 +12,13 @@ async function getPlaidCredentials() {
     }).promise();
     
     const credentials = JSON.parse(secret.SecretString);
-    return {
-      clientId: process.env.PLAID_CLIENT_ID,
-      secret: credentials.secret
-    };
+    const clientId = credentials.client_id || process.env.PLAID_CLIENT_ID;
+
+    if (!clientId || !credentials.secret) {
+      throw new Error('monium/plaid-secret must contain client_id and secret');
+    }
+
+    return { clientId, secret: credentials.secret };
   } catch (error) {
     console.error('Failed to fetch Plaid credentials:', error);
     throw new Error('Failed to get Plaid credentials');
@@ -53,14 +56,15 @@ exports.handler = async (event) => {
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`Plaid API error: ${response.statusText}`);
-    }
-
+    // Read the body before checking status - Plaid puts the useful diagnostic
+    // in error_code/error_message, and statusText alone is just "Bad Request"
     const data = await response.json();
 
-    if (data.error_code) {
-      throw new Error(`Plaid error: ${data.error_message}`);
+    if (!response.ok || data.error_code) {
+      console.error('Plaid link token error:', data);
+      throw new Error(
+        `Plaid ${data.error_code || response.status}: ${data.error_message || response.statusText}`
+      );
     }
 
     return {

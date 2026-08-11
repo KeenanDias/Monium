@@ -27,12 +27,17 @@ EXAMPLE:
     exit 0
 }
 
-# Validate parameters
-if (-not $AccountId -or -not $PlaidClientId) {
+# Validate parameters. PlaidClientId is optional now that the Lambdas read it
+# from the monium/plaid-secret JSON.
+if (-not $AccountId) {
     Write-Host "ERROR: Missing required parameters" -ForegroundColor Red
     Write-Host "Use -Help for usage information"
     exit 1
 }
+
+# Stop on the first failure. Without this the script reports every function as
+# deployed even when nothing was packaged or uploaded.
+$ErrorActionPreference = "Stop"
 
 $S3_BUCKET = "monium-lambda-$AccountId"
 $ROLE_ARN = "arn:aws:iam::${AccountId}:role/MoniumLambdaRole"
@@ -69,9 +74,15 @@ function Deploy-LambdaFunction {
     # Change to function directory
     Push-Location $Directory
 
-    # Install dependencies
+    # Install dependencies. npm writes warnings to stderr, which PowerShell 5.1
+    # turns into a terminating error under ErrorActionPreference=Stop - so relax
+    # it here and judge success by the exit code instead.
     Write-Host "  - Installing dependencies..."
-    npm install 2>&1 | Out-Null
+    $ErrorActionPreference = "Continue"
+    npm install --omit=dev --no-audit --no-fund --loglevel=error | Out-Null
+    $npmExit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($npmExit -ne 0) { throw "npm install failed in $Directory" }
 
     # Create deployment package
     Write-Host "  - Creating deployment package..."
@@ -81,17 +92,29 @@ function Deploy-LambdaFunction {
         Remove-Item $ZipFile
     }
 
-    # Create zip without node_modules (they'll be in Lambda layer)
-    Compress-Archive -Path "index.js", "package.json" -DestinationPath $ZipFile -Force
+    # node_modules must be in the package - there is no Lambda layer, and the
+    # Node 20+ runtimes no longer ship the AWS SDK
+    # Use bsdtar, not Compress-Archive: PowerShell 5.1 writes zip entries with
+    # backslash separators, which Lambda's Linux unzip flattens into broken
+    # nested paths ("Cannot find module" at cold start).
+    $Contents = @("index.js", "package.json")
+    if (Test-Path "node_modules") { $Contents += "node_modules" }
+    tar.exe -a -c -f $ZipFile $Contents
+    if ($LASTEXITCODE -ne 0) { throw "Packaging failed for $FunctionName" }
 
     # Upload to S3
     Write-Host "  - Uploading to S3..."
-    aws s3 cp $ZipFile "s3://$S3_BUCKET/$ZipFile" --region $Region 2>&1 | Out-Null
+    aws s3 cp $ZipFile "s3://$S3_BUCKET/$ZipFile" --region $Region | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "S3 upload failed for $FunctionName" }
 
-    # Create or update Lambda function
-    $FunctionExists = aws lambda get-function --function-name $FunctionName --region $Region 2>&1 | Select-String "error" -Quiet
+    # Create or update Lambda function. A non-zero exit code here just means the
+    # function doesn't exist yet, so don't let it terminate the script.
+    $ErrorActionPreference = "Continue"
+    aws lambda get-function --function-name $FunctionName --region $Region 2>$null | Out-Null
+    $FunctionExists = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = "Stop"
 
-    if (-not $FunctionExists) {
+    if ($FunctionExists) {
         Write-Host "  - Updating Lambda function..."
         
         # Update code
@@ -99,24 +122,26 @@ function Deploy-LambdaFunction {
             --function-name $FunctionName `
             --s3-bucket $S3_BUCKET `
             --s3-key $ZipFile `
-            --region $Region 2>&1 | Out-Null
-        
-        # Wait for update to complete
-        Start-Sleep -Seconds 5
+            --region $Region | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "update-function-code failed for $FunctionName" }
+
+        aws lambda wait function-updated-v2 --function-name $FunctionName --region $Region
     } else {
         Write-Host "  - Creating Lambda function (first time)..."
         
         aws lambda create-function `
             --function-name $FunctionName `
-            --runtime nodejs18.x `
+            --runtime nodejs22.x `
             --role $ROLE_ARN `
             --handler "index.handler" `
-            --s3-bucket $S3_BUCKET `
-            --s3-key $ZipFile `
+            --code "S3Bucket=$S3_BUCKET,S3Key=$ZipFile" `
             --timeout 30 `
             --memory-size 256 `
             --environment "Variables={PLAID_CLIENT_ID=$PlaidClientId,JWT_SECRET=$JWT_SECRET}" `
-            --region $Region 2>&1 | Out-Null
+            --region $Region | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "create-function failed for $FunctionName" }
+
+        aws lambda wait function-active-v2 --function-name $FunctionName --region $Region
     }
 
     # update-function-code does not touch configuration, so set env vars either way
@@ -136,19 +161,19 @@ function Deploy-LambdaFunction {
 $Functions = @(
     @{
         Name = "monium-auth"
-        Path = "./auth"
+        Path = "$PSScriptRoot\lambda\auth"
     },
     @{
         Name = "monium-kyc"
-        Path = "./kyc"
+        Path = "$PSScriptRoot\lambda\kyc"
     },
     @{
         Name = "monium-plaid-link-token"
-        Path = "./plaid"
+        Path = "$PSScriptRoot\lambda\plaid"
     },
     @{
         Name = "monium-process-transactions"
-        Path = "./process-transactions"
+        Path = "$PSScriptRoot\lambda\process-transactions"
     }
 )
 
