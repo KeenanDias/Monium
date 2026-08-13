@@ -9,6 +9,7 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet" />
@@ -20,6 +21,7 @@
 <!-- config -> shared backend (must load before the app boots) -->
 <script src="js/config.js"></script>
 <script src="js/supabase.js"></script>
+<script src="js/api.js"></script>
 
 <script>
   window.addEventListener('error', function (e) {
@@ -91,14 +93,56 @@ function useCountUp(value, duration = 650) {
   return d;
 }
 
-/* ===== model ===== */
-const INCOME = 3000, FIXED = 1200, BUFFER = 75, ESCROW = 0, DAYS_LEFT = 30;
-const FIXED_ITEMS = [
-  { label: "Rent", amt: 1150, icon: HomeI },
-  { label: "Gym membership", amt: 39, icon: Repeat },
-  { label: "Spotify", amt: 11, icon: Sparkles },
-];
-const dailyFromBite = (bite) => Math.max(0, (INCOME - FIXED - BUFFER - ESCROW - bite) / DAYS_LEFT);
+/* ===== model =====
+   Every screen reads its numbers from a `fin` object. Signed out, that's the
+   demo figures below. Signed in, it's whatever /process-transactions computed
+   from the user's real Plaid data — same shape either way, so no screen needs
+   to know which it's looking at. */
+const DEMO_FIN = {
+  monthlyIncome: 3000,
+  monthlyCommitted: 1200,
+  buffer: 75,
+  escrow: 0,
+  daysLeft: 30,
+  commitments: [
+    { label: "Rent", amt: 1150, icon: HomeI },
+    { label: "Gym membership", amt: 39, icon: Repeat },
+    { label: "Spotify", amt: 11, icon: Sparkles },
+  ],
+};
+
+// Plaid's personal_finance_category -> icons already defined above
+const CATEGORY_ICON = {
+  RENT_AND_UTILITIES: HomeI,
+  LOAN_PAYMENTS: Wallet,
+  FOOD_AND_DRINK: Utensils,
+  TRANSPORTATION: Car,
+  TRAVEL: Plane,
+  ENTERTAINMENT: Sparkles,
+  GENERAL_MERCHANDISE: Bag,
+  PERSONAL_CARE: Repeat,
+  MEDICAL: Shield,
+};
+
+// Reshape an API response into the `fin` object the screens expect.
+// The server's monthlySavings sits in `buffer` because both are money set
+// aside before anything is spendable.
+const toFin = (r) => ({
+  monthlyIncome: r.monthlyIncome || 0,
+  monthlyCommitted: r.monthlyCommitted || 0,
+  buffer: r.monthlySavings || 0,
+  escrow: 0,
+  daysLeft: r.daysUntilNextPayday || 30,
+  incomeSource: r.incomeSource,
+  commitments: (r.commitments || []).map((c) => ({
+    label: c.name || "Recurring payment",
+    amt: c.monthlyAmount,
+    icon: CATEGORY_ICON[c.category] || Repeat,
+  })),
+});
+
+const dailyFromBite = (fin, bite) =>
+  Math.max(0, (fin.monthlyIncome - fin.monthlyCommitted - fin.buffer - fin.escrow - bite) / (fin.daysLeft || 30));
 const parseAmount = (t) => { const m = t.replace(/,/g, "").match(/\$?\s?(\d+(?:\.\d{1,2})?)/); return m ? parseFloat(m[1]) : null; };
 
 /* ===== shared bits ===== */
@@ -135,10 +179,95 @@ const Bubble = ({ children }) => (
 /* ============================================================== */
 /*  SCREEN 1 — Connect                                            */
 /* ============================================================== */
-function ScreenConnect({ onDone }) {
+/* ============================================================== */
+/*  SCREEN 0 — Sign in                                            */
+/* ============================================================== */
+function ScreenAuth({ onDone }) {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const r = mode === "login"
+        ? await MONIUM_API.login(email, password)
+        : await MONIUM_API.register(email, password);
+      onDone(r);
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="px-5 pt-2 pb-6 anim-fadeUp">
+      <div className="flex items-center gap-3 mb-5">
+        <Mark />
+        <div>
+          <div className="text-neutral-900 font-semibold text-[15px] flex items-center gap-1.5">Monium <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-neutral-900 text-white">BETA</span></div>
+          <div className="text-neutral-500 text-xs">Know what's safe to spend today</div>
+        </div>
+      </div>
+
+      <h2 className="text-neutral-900 text-[26px] font-bold leading-tight tracking-tight mb-4 serif">
+        {mode === "login" ? <>Welcome back.</> : <>Let's get you<br/>set up.</>}
+      </h2>
+
+      <form onSubmit={submit} className="space-y-2.5">
+        <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+          placeholder="Email" autoComplete="email"
+          className="w-full rounded-xl border border-neutral-200 px-3.5 py-3 text-[15px] outline-none focus:border-neutral-900 transition" />
+        <input type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)}
+          placeholder="Password" autoComplete={mode === "login" ? "current-password" : "new-password"}
+          className="w-full rounded-xl border border-neutral-200 px-3.5 py-3 text-[15px] outline-none focus:border-neutral-900 transition" />
+
+        {error && <div className="text-[13px] text-red-600 px-1">{error}</div>}
+
+        <button type="submit" disabled={busy}
+          className="w-full rounded-xl bg-neutral-900 text-white py-3 text-[15px] font-semibold hover:bg-neutral-800 disabled:opacity-50 transition">
+          {busy ? "One moment…" : mode === "login" ? "Sign in" : "Create account"}
+        </button>
+      </form>
+
+      <button onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(null); }}
+        className="w-full mt-3 text-[13px] text-neutral-500 hover:text-neutral-900 transition">
+        {mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
+      </button>
+
+      <div className="mt-5 flex items-start gap-2 text-[12px] text-neutral-400">
+        <Lock size={14} className="mt-0.5 shrink-0" />
+        <span>Bank connections are read-only. We never store your banking credentials.</span>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================== */
+/*  SCREEN 1 — Connect                                            */
+/* ============================================================== */
+function ScreenConnect({ onDone, live }) {
   const [phase, setPhase] = useState("idle");
   const [method, setMethod] = useState("bank");
   const [done, setDone] = useState(0);
+  const [error, setError] = useState(null);
+
+  // Live mode hands off to Plaid Link; the scripted "parsing" animation below
+  // is the demo path and runs on a timer instead.
+  const startBank = async () => {
+    if (!live) { setPhase("parsing"); return; }
+    setError(null);
+    try {
+      const result = await MONIUM_API.connectBank();
+      if (result) onDone(result);   // null means the user closed Plaid Link
+    } catch (err) {
+      setError(err.message);
+    }
+  };
   const steps = method === "bank"
     ? ["Linking your bank with Plaid…", "Pulling 90 days of transactions…", "Isolating fixed payroll lines…", "Identifying recurring subscriptions…", "Categorizing discretionary spend…"]
     : ["Reading statement rows…", "Isolating fixed payroll lines…", "Identifying recurring subscriptions…", "Categorizing discretionary spend…", "Encrypting & saving to your vault…"];
@@ -173,14 +302,19 @@ function ScreenConnect({ onDone }) {
               </button>
             ))}
           </div>
-          <button onClick={() => setPhase("parsing")}
+          <button onClick={() => (method === "bank" ? startBank() : setPhase("parsing"))}
             className={`group w-full rounded-2xl border bg-neutral-50 hover:bg-neutral-100 hover:border-neutral-400 transition-all p-6 text-center ${method==="upload" ? "border-dashed border-neutral-300" : "border-neutral-200"}`}>
             <div className="mx-auto mb-3 w-12 h-12 rounded-xl grid place-items-center bg-neutral-900 text-white group-hover:scale-105 transition">
               {method==="bank" ? <Bank size={22}/> : <Upload size={22}/>}
             </div>
             <div className="text-neutral-900 font-semibold text-[15px]">{method==="bank" ? "Connect with Plaid" : "Upload Bank Statement"}</div>
-            <div className="text-neutral-400 text-xs mt-1">{method==="bank" ? "Bank-grade · read-only · 12,000+ banks" : "PDF · CSV — drop or browse"}</div>
+            <div className="text-neutral-400 text-xs mt-1">{method==="bank" ? "Bank-grade · read-only · your bank, securely" : "PDF · CSV — drop or browse"}</div>
           </button>
+
+          {error && <div className="mt-3 text-[13px] text-red-600 px-1">{error}</div>}
+          {live && method === "upload" && (
+            <div className="mt-3 text-[12px] text-neutral-400 px-1">Statement upload is coming soon — connect your bank for now.</div>
+          )}
         </div>
       )}
 
@@ -228,18 +362,18 @@ function ScreenConnect({ onDone }) {
 /* ============================================================== */
 /*  SCREEN 2 — Review                                             */
 /* ============================================================== */
-function ScreenReview({ goals, onDone }) {
+function ScreenReview({ goals, fin, onDone }) {
   const [grown, setGrown] = useState(false);
   useEffect(() => { const t = setTimeout(() => setGrown(true), 120); return () => clearTimeout(t); }, []);
   const goalBite = goals.filter(g => g.enrolled).reduce((s, g) => s + g.monthly, 0);
-  const runway = INCOME - FIXED - BUFFER - goalBite;
-  const seg = (v) => (grown ? (v / INCOME) * 100 : 0) + "%";
+  const runway = fin.monthlyIncome - fin.monthlyCommitted - fin.buffer - goalBite;
+  const seg = (v) => (grown && fin.monthlyIncome ? (v / fin.monthlyIncome) * 100 : 0) + "%";
   return (
     <div className="px-5 pt-2 pb-6 anim-fadeUp">
-      <div className="mb-1 text-neutral-400 text-[11px] font-bold tracking-[.16em] uppercase">Parsed · {moneyW(INCOME)} / mo</div>
+      <div className="mb-1 text-neutral-400 text-[11px] font-bold tracking-[.16em] uppercase">Parsed · {moneyW(fin.monthlyIncome)} / mo</div>
       <h2 className="text-neutral-900 text-[26px] font-bold leading-tight tracking-tight mb-4 serif">Here's how I split<br/>your money.</h2>
       <div className="h-3.5 w-full rounded-full overflow-hidden flex bg-neutral-100 mb-2">
-        <div className="h-full bg-neutral-900" style={{ width: seg(FIXED + BUFFER), transition: "width 1s cubic-bezier(.2,.8,.2,1)" }} />
+        <div className="h-full bg-neutral-900" style={{ width: seg(fin.monthlyCommitted + fin.buffer), transition: "width 1s cubic-bezier(.2,.8,.2,1)" }} />
         <div className="h-full bg-neutral-500" style={{ width: seg(goalBite), transition: "width 1s .1s cubic-bezier(.2,.8,.2,1)" }} />
         <div className="h-full bg-neutral-300" style={{ width: seg(runway), transition: "width 1s .2s cubic-bezier(.2,.8,.2,1)" }} />
       </div>
@@ -248,15 +382,18 @@ function ScreenReview({ goals, onDone }) {
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-neutral-500"/>Vaults</span>
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-neutral-300"/>Runway</span>
       </div>
-      <Block icon={Lock} title="Fixed Liabilities" badge="Locked Out" amount={moneyW(FIXED + BUFFER)}>
+      <Block icon={Lock} title="Fixed Liabilities" badge="Locked Out" amount={moneyW(fin.monthlyCommitted + fin.buffer)}>
         <div className="space-y-2 mt-3">
-          {FIXED_ITEMS.map((f) => (
-            <div key={f.label} className="flex items-center gap-2.5 text-[13px]">
-              <f.icon size={15} className="text-neutral-400" /><span className="text-neutral-600">{f.label}</span>
+          {fin.commitments.map((f, i) => (
+            <div key={f.label + i} className="flex items-center gap-2.5 text-[13px]">
+              <f.icon size={15} className="text-neutral-400" /><span className="text-neutral-600 truncate">{f.label}</span>
               <span className="ml-auto text-neutral-500 tabular-nums">{moneyW(f.amt)}</span>
             </div>
           ))}
-          <div className="flex items-center gap-2.5 text-[13px]"><Shield size={15} className="text-neutral-400"/><span className="text-neutral-600">Safety buffer</span><span className="ml-auto text-neutral-500 tabular-nums">{moneyW(BUFFER)}</span></div>
+          {fin.commitments.length === 0 && (
+            <div className="text-[13px] text-neutral-400">No recurring payments detected yet.</div>
+          )}
+          <div className="flex items-center gap-2.5 text-[13px]"><Shield size={15} className="text-neutral-400"/><span className="text-neutral-600">Savings &amp; buffer</span><span className="ml-auto text-neutral-500 tabular-nums">{moneyW(fin.buffer)}</span></div>
         </div>
       </Block>
       <Block icon={Wallet} title="Goal Vault Allocations" badge="Auto-hidden" amount={moneyW(goalBite)}>
@@ -297,7 +434,7 @@ function Block({ icon: I, title, badge, amount, children }) {
 /* ============================================================== */
 /*  HOME — Safe-to-Spend dashboard                                */
 /* ============================================================== */
-function Dashboard({ daily, spent, streak, goalBite, txns }) {
+function Dashboard({ daily, spent, streak, goalBite, txns, fin, name, onRefresh, refreshing }) {
   const [showCalc, setShowCalc] = useState(false);
   const remaining = daily - spent;
   const over = remaining < 0;
@@ -309,8 +446,11 @@ function Dashboard({ daily, spent, streak, goalBite, txns }) {
     <div className="px-5 pt-2 pb-28 anim-fadeUp">
       <div className="flex items-center justify-between mb-4">
         <div><div className="text-neutral-400 text-[13px]">Good morning,</div>
-          <div className="text-neutral-900 font-bold text-lg tracking-tight flex items-center gap-1.5 serif">Alex</div></div>
-        <Mark size={36} />
+          <div className="text-neutral-900 font-bold text-lg tracking-tight flex items-center gap-1.5 serif">{name || "there"}</div></div>
+        <button onClick={onRefresh} disabled={refreshing} title="Refresh from your bank"
+          className={`transition ${refreshing ? "opacity-40" : "hover:scale-105 active:scale-95"}`}>
+          <Mark size={36} />
+        </button>
       </div>
 
       <div className="relative grid place-items-center mt-1 mb-3">
@@ -328,16 +468,19 @@ function Dashboard({ daily, spent, streak, goalBite, txns }) {
       {showCalc && (
         <div className="rounded-2xl border border-neutral-200 bg-white p-4 mb-3 text-[13px] anim-fadeUp shadow-[0_1px_2px_rgba(0,0,0,.04)]">
           <div className="text-neutral-400 text-[11px] font-bold tracking-[.14em] uppercase mb-2">How this number is built</div>
-          {[["Monthly income", moneyW(INCOME)],["− Fixed bills", "-"+moneyW(FIXED)],["− Safety buffer","-"+moneyW(BUFFER)],["− Goal vaults","-"+moneyW(goalBite)],["− Escrow (next 7d)","-"+moneyW(ESCROW)]].map(([l,v]) => (
+          {[["Monthly income", moneyW(fin.monthlyIncome)],["− Fixed bills", "-"+moneyW(fin.monthlyCommitted)],["− Savings & buffer","-"+moneyW(fin.buffer)],["− Goal vaults","-"+moneyW(goalBite)],["− Escrow (next 7d)","-"+moneyW(fin.escrow)]].map(([l,v]) => (
             <div key={l} className="flex justify-between py-1 text-neutral-600"><span>{l}</span><span className="tabular-nums">{v}</span></div>
           ))}
-          <div className="border-t border-neutral-200 mt-1.5 pt-2 flex justify-between text-neutral-900 font-semibold"><span>÷ {DAYS_LEFT} days left</span><span className="tabular-nums">{money(daily)}/day</span></div>
+          <div className="border-t border-neutral-200 mt-1.5 pt-2 flex justify-between text-neutral-900 font-semibold"><span>÷ {fin.daysLeft} days to payday</span><span className="tabular-nums">{money(daily)}/day</span></div>
+          {fin.incomeSource === "plaid_detected" && (
+            <div className="mt-2 text-[11px] text-neutral-400">Income detected from your deposits.</div>
+          )}
         </div>
       )}
 
       <div className="grid grid-cols-3 gap-2.5 mb-4">
-        <Tool icon={Shield} label="Escrow" val={moneyW(ESCROW)} sub="protected" />
-        <Tool icon={Wallet} label="Buffer" val={moneyW(BUFFER)} sub="reserve" />
+        <Tool icon={Shield} label="Escrow" val={moneyW(fin.escrow)} sub="protected" />
+        <Tool icon={Wallet} label="Buffer" val={moneyW(fin.buffer)} sub="reserve" />
         <Tool icon={Bell} label="Nudge" val="ON" sub="daily SMS" />
       </div>
 
@@ -630,7 +773,16 @@ const INITIAL_GOALS = [
 const STEPS = [["connect", "Connect"], ["review", "Review"], ["app", "Live"]];
 
 function App() {
-  const [phase, setPhase] = useState("connect");
+  // Signed out we run the demo on DEMO_FIN; signed in, every number comes from
+  // the API. `live` is what tells the screens which world they're in.
+  const [live, setLive] = useState(() => !!(window.MONIUM_API && MONIUM_API.isSignedIn()));
+  const [fin, setFin] = useState(DEMO_FIN);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+
+  const [phase, setPhase] = useState(() =>
+    window.MONIUM_API && MONIUM_API.isSignedIn() ? "connect" : "auth"
+  );
   const [tab, setTab] = useState("home");
   const [goals, setGoals] = useState(INITIAL_GOALS);
   const [spent, setSpent] = useState(0);
@@ -643,11 +795,53 @@ function App() {
   const [typing, setTyping] = useState(false);
 
   const goalBite = goals.filter(g => g.enrolled).reduce((s, g) => s + g.monthly, 0);
-  const daily = dailyFromBite(goalBite);
+  const daily = dailyFromBite(fin, goalBite);
   const remaining = daily - spent;
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2400); };
   const reset = () => { setPhase("connect"); setTab("home"); setGoals(INITIAL_GOALS); setSpent(0); setTxns([]); setSheet(false); setMessages(messages.slice(0,1)); };
+
+  const signedInAs = live && MONIUM_API.session.get()
+    ? MONIUM_API.session.get().email.split("@")[0]
+    : "Alex";
+
+  // A signed-in user with a bank already linked should land on their numbers,
+  // not be asked to connect again.
+  useEffect(() => {
+    if (!live) return;
+    let cancelled = false;
+
+    MONIUM_API.refresh()
+      .then((r) => {
+        if (cancelled) return;
+        setFin(toFin(r));
+        setPhase("app");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // "No bank account linked" is the expected first-run state, not an error
+        if (/no bank account/i.test(err.message)) setPhase("connect");
+        else if (/sign in/i.test(err.message)) { setLive(false); setPhase("auth"); }
+        else setLoadError(err.message);
+      });
+
+    return () => { cancelled = true; };
+  }, [live]);
+
+  const refresh = async () => {
+    if (!live) return;
+    setRefreshing(true);
+    try {
+      setFin(toFin(await MONIUM_API.refresh()));
+      flash("Updated from your bank");
+    } catch (err) {
+      flash(err.message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const signOut = () => { MONIUM_API.logout(); setLive(false); setFin(DEMO_FIN); setPhase("auth"); };
 
   const logTxn = (t) => { setSpent(s => s + t.amt); setTxns(x => [t, ...x]); flash((remaining - t.amt) < 0 ? `Logged ${money(t.amt)} · you're over today` : `Logged ${money(t.amt)} · Safe-to-Spend updated`); };
   const toggleGoal = (id) => setGoals(gs => gs.map(g => g.id === id ? { ...g, enrolled: !g.enrolled } : g));
@@ -677,7 +871,7 @@ function App() {
         const label = /car/.test(lower) ? "Car Fund" : /house|home|down ?payment/.test(lower) ? "Home Fund" : /trip|travel|vacation|japan/.test(lower) ? "Trip Fund" : "New Goal";
         const icon = /car/.test(lower) ? Car : /trip|travel|vacation/.test(lower) ? Plane : Target;
         addGoal({ label, saved: 0, target: amt, monthly, enrolled: true, icon });
-        const newDaily = dailyFromBite(goalBite + monthly);
+        const newDaily = dailyFromBite(fin, goalBite + monthly);
         reply(`Done 🎯 I built <b>${label}</b> — tucking away <b>${moneyW(monthly)}/mo</b> for ${months} months to hit ${moneyW(amt)}.<br/><br/>That moves your Safe-to-Spend to <b>${money(newDaily)}/day</b>. ${monthly > 500 ? "That's aggressive — want me to stretch the timeline?" : "Check the Vaults tab to tweak it."}`);
       } else if (/(can i|afford|should i)/.test(lower) && amt) {
         const weeklyFlex = daily * 7 - spent;
@@ -685,7 +879,7 @@ function App() {
           ? `✓ <b>Yes</b> — ${money(amt)} fits. It's inside this week's flex of about ${money(Math.max(0, weeklyFlex))}, and you'll keep your ${streak}-day streak. Want me to log it?`
           : `I'd hold off — ${money(amt)} is about <b>${(amt / daily).toFixed(1)}× your daily allowance</b> of ${money(daily)}. I can spread it over a few days or pull from a vault. Want a plan?`);
       } else if (/(safe.?to.?spend|calculat|how much|how do you|formula)/.test(lower)) {
-        reply(`Your daily number = (income − fixed bills − buffer − goal vaults − escrow) ÷ days left.<br/><br/>Right now: ${moneyW(INCOME)} − ${moneyW(FIXED)} − ${moneyW(BUFFER)} − ${moneyW(goalBite)} = <b>${moneyW(INCOME-FIXED-BUFFER-goalBite)}</b>, ÷ ${DAYS_LEFT} days = <b>${money(daily)}/day</b>.`);
+        reply(`Your daily number = (income − fixed bills − savings − goal vaults) ÷ days until payday.<br/><br/>Right now: ${moneyW(fin.monthlyIncome)} − ${moneyW(fin.monthlyCommitted)} − ${moneyW(fin.buffer)} − ${moneyW(goalBite)} = <b>${moneyW(fin.monthlyIncome-fin.monthlyCommitted-fin.buffer-goalBite)}</b>, ÷ ${fin.daysLeft} days = <b>${money(daily)}/day</b>.`);
       } else {
         reply(`I can help you <b>check affordability</b>, <b>set a savings goal</b>, or <b>log a spend</b>. Try one of the chips below 👇`);
       }
@@ -719,12 +913,20 @@ function App() {
             <StatusBar />
 
             <div className="flex-1 overflow-hidden relative flex flex-col">
-              {phase === "connect" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenConnect onDone={() => setPhase("review")} /></div>}
-              {phase === "review" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenReview goals={goals} onDone={() => { setPhase("app"); setTab("home"); }} /></div>}
+              {phase === "auth" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenAuth onDone={() => { setLive(true); setPhase("connect"); }} /></div>}
+              {phase === "connect" && (
+                <div className="flex-1 overflow-y-auto no-scroll">
+                  <ScreenConnect live={live} onDone={(result) => {
+                    if (result) setFin(toFin(result));
+                    setPhase("review");
+                  }} />
+                </div>
+              )}
+              {phase === "review" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenReview goals={goals} fin={fin} onDone={() => { setPhase("app"); setTab("home"); }} /></div>}
               {phase === "app" && (
                 <>
                   <div className="flex-1 overflow-y-auto no-scroll">
-                    {tab === "home" && <Dashboard daily={daily} spent={spent} streak={streak} goalBite={goalBite} txns={txns} />}
+                    {tab === "home" && <Dashboard daily={daily} spent={spent} streak={streak} goalBite={goalBite} txns={txns} fin={fin} name={signedInAs} onRefresh={refresh} refreshing={refreshing} />}
                     {tab === "vaults" && <Vaults goals={goals} daily={daily} onToggle={toggleGoal} onAddGoal={() => setTab("chat")} />}
                     {tab === "chat" && <Chat messages={messages} typing={typing} onSend={handleUser} />}
                     {tab === "tips" && <Tips daily={daily} />}
@@ -759,7 +961,12 @@ function App() {
         </div>
       </div>
 
+      {loadError && (
+        <div className="mt-4 max-w-[390px] text-[13px] text-red-600 text-center px-4">{loadError}</div>
+      )}
+
       {CHROME && <button onClick={reset} className="mt-5 text-neutral-400 hover:text-neutral-700 text-[13px] font-medium transition">↺ Reset demo</button>}
+      {live && <button onClick={signOut} className="mt-3 text-neutral-400 hover:text-neutral-700 text-[13px] font-medium transition">Sign out</button>}
 
       {betaOpen && <BetaModal onClose={() => setBetaOpen(false)} />}
     </div>
