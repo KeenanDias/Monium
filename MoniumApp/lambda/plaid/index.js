@@ -3,7 +3,19 @@ const AWS = require('aws-sdk');
 const secretsManager = new AWS.SecretsManager();
 
 // Plaid API endpoint
-const PLAID_API_URL = 'https://sandbox.plaid.com'; // Use sandbox for testing
+const PLAID_API_URL = process.env.PLAID_API_URL || 'https://sandbox.plaid.com';
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || 'https://monium.ca';
+
+const HEADERS = {
+  'Content-Type': 'application/json',
+  'Access-Control-Allow-Origin': ALLOWED_ORIGIN
+};
+
+const respond = (statusCode, body) => ({
+  statusCode,
+  headers: HEADERS,
+  body: JSON.stringify(body)
+});
 
 async function getPlaidCredentials() {
   try {
@@ -33,10 +45,7 @@ exports.handler = async (event) => {
     const { userId } = body;
 
     if (!userId) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'Missing userId' })
-      };
+      return respond(400, { error: 'Missing userId' });
     }
 
     const credentials = await getPlaidCredentials();
@@ -49,7 +58,7 @@ exports.handler = async (event) => {
         user: { client_user_id: userId },
         client_name: 'Monium',
         language: 'en',
-        country_codes: ['US'],
+        country_codes: ['CA'],
         products: ['transactions'],
         client_id: credentials.clientId,
         secret: credentials.secret
@@ -67,19 +76,12 @@ exports.handler = async (event) => {
       );
     }
 
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        link_token: data.link_token,
-        expiration: data.expiration
-      })
-    };
+    return respond(200, {
+      link_token: data.link_token,
+      expiration: data.expiration
+    });
   } catch (error) {
     console.error('Error:', error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message })
-    };
+    return respond(500, { error: error.message });
   }
 };

@@ -1,0 +1,9 @@
+{
+  "name": "monium-plaid-exchange-lambda",
+  "version": "1.0.0",
+  "description": "Exchanges a Plaid public_token for a server-side access_token",
+  "main": "index.js",
+  "dependencies": {
+    "aws-sdk": "^2.1400.0"
+  }
+}

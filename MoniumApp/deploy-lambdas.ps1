@@ -1,4 +1,4 @@
-#!/usr/bin/env powershell
+﻿#!/usr/bin/env powershell
 
 # Monium iOS App - Lambda Deployment Script
 # Deploys all Lambda functions to AWS
@@ -7,6 +7,8 @@ param(
     [string]$AccountId = "",
     [string]$Region = "us-east-1",
     [string]$PlaidClientId = "",
+    [string]$AllowedOrigin = "https://monium.ca",
+    [string]$Only = "",
     [switch]$Help
 )
 
@@ -137,7 +139,7 @@ function Deploy-LambdaFunction {
             --code "S3Bucket=$S3_BUCKET,S3Key=$ZipFile" `
             --timeout 30 `
             --memory-size 256 `
-            --environment "Variables={PLAID_CLIENT_ID=$PlaidClientId,JWT_SECRET=$JWT_SECRET}" `
+            --environment "Variables={PLAID_CLIENT_ID=$PlaidClientId,JWT_SECRET=$JWT_SECRET,ALLOWED_ORIGIN=$AllowedOrigin}" `
             --region $Region | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "create-function failed for $FunctionName" }
 
@@ -147,7 +149,7 @@ function Deploy-LambdaFunction {
     # update-function-code does not touch configuration, so set env vars either way
     aws lambda update-function-configuration `
         --function-name $FunctionName `
-        --environment "Variables={PLAID_CLIENT_ID=$PlaidClientId,JWT_SECRET=$JWT_SECRET}" `
+        --environment "Variables={PLAID_CLIENT_ID=$PlaidClientId,JWT_SECRET=$JWT_SECRET,ALLOWED_ORIGIN=$AllowedOrigin}" `
         --region $Region 2>&1 | Out-Null
 
     # Clean up
@@ -174,10 +176,16 @@ $Functions = @(
     @{
         Name = "monium-process-transactions"
         Path = "$PSScriptRoot\lambda\process-transactions"
+    },
+    @{
+        Name = "monium-plaid-exchange"
+        Path = "$PSScriptRoot\lambda\plaid-exchange"
     }
 )
 
 foreach ($func in $Functions) {
+    # -Only lets you redeploy a single function instead of waiting on all five
+    if ($Only -and $func.Name -notlike "*$Only*") { continue }
     Deploy-LambdaFunction -FunctionName $func.Name -Directory $func.Path
 }
 

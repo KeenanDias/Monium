@@ -1,4 +1,4 @@
-#!/usr/bin/env powershell
+﻿#!/usr/bin/env powershell
 
 # Monium iOS App - API Gateway Setup Script
 # Creates REST API endpoints for Lambda functions
@@ -29,6 +29,9 @@ if (-not $AccountId) {
     Write-Host "ERROR: Missing -AccountId parameter" -ForegroundColor Red
     exit 1
 }
+
+# Stop on the first failure rather than reporting success for every step
+$ErrorActionPreference = "Stop"
 
 Write-Host @"
 ╔════════════════════════════════════════════════════════════════╗
@@ -92,7 +95,8 @@ function Create-LambdaMethod {
         --resource-id $ResourceId `
         --http-method POST `
         --authorization-type NONE `
-        --region $Region 2>&1 | Out-Null
+        --region $Region | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "put-method failed for $LambdaFunctionName" }
 
     # Create integration with Lambda
     aws apigateway put-integration `
@@ -102,17 +106,24 @@ function Create-LambdaMethod {
         --type AWS_PROXY `
         --integration-http-method POST `
         --uri "arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${LambdaArn}/invocations" `
-        --region $Region 2>&1 | Out-Null
+        --region $Region | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "put-integration failed for $LambdaFunctionName" }
 
-    # Grant API Gateway permission to invoke Lambda
-    $StatementId = "$LambdaFunctionName-api-gateway-$(Get-Random)"
-    
+    # Grant API Gateway permission to invoke Lambda. --source-arn scopes this to
+    # this API only; without it any API Gateway in any AWS account could invoke
+    # the function.
+    $StatementId = "$LambdaFunctionName-apigw"
+    $SourceArn = "arn:aws:execute-api:${Region}:${AccountId}:${RestApiId}/*/POST/*"
+
+    $ErrorActionPreference = "Continue"
     aws lambda add-permission `
         --function-name $LambdaFunctionName `
         --statement-id $StatementId `
         --action lambda:InvokeFunction `
         --principal apigateway.amazonaws.com `
-        --region $Region 2>&1 | Out-Null
+        --source-arn $SourceArn `
+        --region $Region 2>$null | Out-Null
+    $ErrorActionPreference = "Stop"
 
     Write-Host "  ✅ POST method created" -ForegroundColor Green
 }

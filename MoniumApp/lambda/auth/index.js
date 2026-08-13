@@ -5,6 +5,18 @@ const bcrypt = require("bcryptjs");
 
 const USERS_TABLE = "MoniumUsers";
 const BCRYPT_ROUNDS = 12;
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://monium.ca";
+
+const HEADERS = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+};
+
+const respond = (statusCode, body) => ({
+  statusCode,
+  headers: HEADERS,
+  body: JSON.stringify(body),
+});
 
 // Fail fast at cold start rather than signing tokens with a guessable key
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -117,12 +129,9 @@ exports.handler = async (event) => {
     const { email, password, action } = body;
 
     if (!email || !password || !action) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          error: "Missing required fields: email, password, action",
-        }),
-      };
+      return respond(400, {
+        error: "Missing required fields: email, password, action",
+      });
     }
 
     let result;
@@ -131,24 +140,12 @@ exports.handler = async (event) => {
     } else if (action === "login") {
       result = await loginUser(email, password);
     } else {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          error: 'Invalid action. Use "register" or "login"',
-        }),
-      };
+      return respond(400, { error: 'Invalid action. Use "register" or "login"' });
     }
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(result),
-    };
+    return respond(200, result);
   } catch (error) {
     console.error("Error:", error);
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ error: error.message }),
-    };
+    return respond(400, { error: error.message });
   }
 };

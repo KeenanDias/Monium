@@ -7,6 +7,18 @@ const USERS_TABLE = "MoniumUsers";
 // Sandbox by default. Switch to https://production.plaid.com only after
 // Plaid approves production access.
 const PLAID_API_URL = process.env.PLAID_API_URL || "https://sandbox.plaid.com";
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://monium.ca";
+
+const HEADERS = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+};
+
+const respond = (statusCode, body) => ({
+  statusCode,
+  headers: HEADERS,
+  body: JSON.stringify(body),
+});
 
 const LOOKBACK_DAYS = 90;
 const DAYS_PER_MONTH = 30.44;
@@ -191,23 +203,32 @@ function daysUntilNextPayday(incomeStreams) {
   return Math.max(1, Math.ceil((endOfMonth - today) / (24 * 60 * 60 * 1000)));
 }
 
+// Months to spread a savings goal over when the user gave no deadline. A goal
+// is a total to reach, not a monthly bill - charging the full amount every month
+// floors safe-to-spend at zero for anyone with a goal larger than their income.
+const DEFAULT_GOAL_HORIZON_MONTHS = 12;
+
 function monthlySavingsTarget(profile) {
+  // An explicit per-month figure always wins
   if (profile.monthlySavings) return parseFloat(profile.monthlySavings);
 
-  // Derive from goal amount and target date when both are present
-  const goalAmount = parseFloat(profile.goalAmount ?? profile.goal);
-  if (isNaN(goalAmount)) return 0;
+  // Handles "$5,000" and "5000" alike - a bare parseFloat returns NaN on the
+  // currency-formatted string the onboarding form accepts
+  const raw = String(profile.goalAmount ?? profile.goal ?? "");
+  const match = raw.replace(/,/g, "").match(/(\d+(?:\.\d{1,2})?)/);
+  if (!match) return 0;
 
-  if (profile.goalTargetDate) {
-    const monthsRemaining = Math.max(
-      1,
-      (new Date(profile.goalTargetDate) - new Date()) /
-        (DAYS_PER_MONTH * 24 * 60 * 60 * 1000),
-    );
-    return goalAmount / monthsRemaining;
-  }
+  const goalAmount = parseFloat(match[1]);
 
-  return goalAmount;
+  const monthsRemaining = profile.goalTargetDate
+    ? Math.max(
+        1,
+        (new Date(profile.goalTargetDate) - new Date()) /
+          (DAYS_PER_MONTH * 24 * 60 * 60 * 1000),
+      )
+    : DEFAULT_GOAL_HORIZON_MONTHS;
+
+  return goalAmount / monthsRemaining;
 }
 
 function monthlyIncomeFromProfile(profile) {
@@ -261,15 +282,10 @@ exports.handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body || "{}");
-    const { userId, plaidAccessToken } = body;
+    const { userId } = body;
 
-    if (!userId || !plaidAccessToken) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          error: "Missing required fields: userId, plaidAccessToken",
-        }),
-      };
+    if (!userId) {
+      return respond(400, { error: "Missing required field: userId" });
     }
 
     const credentials = await getPlaidCredentials();
@@ -279,19 +295,21 @@ exports.handler = async (event) => {
       .promise();
 
     if (!userResult.Item) {
-      return {
-        statusCode: 404,
-        body: JSON.stringify({ error: "User not found" }),
-      };
+      return respond(404, { error: "User not found" });
     }
 
     const profile = userResult.Item.profile || userResult.Item.kyc;
 
     if (!profile) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "User must complete onboarding first" }),
-      };
+      return respond(400, { error: "User must complete onboarding first" });
+    }
+
+    // The access token lives server-side only - it is written by
+    // monium-plaid-exchange and never travels to or from the client
+    const plaidAccessToken = userResult.Item.plaidAccessToken;
+
+    if (!plaidAccessToken) {
+      return respond(400, { error: "No bank account linked" });
     }
 
     const [transactions, committed] = await Promise.all([
@@ -318,25 +336,14 @@ exports.handler = async (event) => {
       .update({
         TableName: USERS_TABLE,
         Key: { userId },
-        UpdateExpression:
-          "SET safeToSpend = :s, plaidAccessToken = :pat REMOVE transactions",
-        ExpressionAttributeValues: {
-          ":s": safeToSpend,
-          ":pat": plaidAccessToken,
-        },
+        UpdateExpression: "SET safeToSpend = :s REMOVE transactions",
+        ExpressionAttributeValues: { ":s": safeToSpend },
       })
       .promise();
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(safeToSpend),
-    };
+    return respond(200, safeToSpend);
   } catch (error) {
     console.error("Error:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
-    };
+    return respond(500, { error: error.message });
   }
 };
