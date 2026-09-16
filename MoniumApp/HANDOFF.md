@@ -1,8 +1,8 @@
 # Monium — Handoff
 
-**Prepared:** August 13, 2026
-**Branch:** `add-ios-aws-backend` @ `b1ff929` — 4 commits ahead of `main`, **not merged**
-**Local `MoniumApp/` matches the pushed branch** (differences are line endings only)
+**Prepared:** August 13, 2026 · **Updated:** September 16, 2026
+**`main` @ `61188a6`** — `add-ios-aws-backend` has been merged and pushed
+**Local `MoniumApp/` matches `main`** (differences are line endings only)
 
 Everything under "Done" was checked against live AWS and the pushed branch while
 writing this, not recalled from memory.
@@ -103,9 +103,20 @@ API Gateway  z2t5gxylo8 / prod        ← CORS locked to https://monium.ca
 ## 3. Not verified
 
 **The full flow has never run in a real browser.** Sign-in → Plaid Link → exchange
-→ dashboard is wired and each endpoint works on its own, but nobody has clicked
-through it end to end. It can't be tested yet: `monium.ca` isn't serving anything,
-and `localhost` is blocked by CORS. Expect bugs on the first real run.
+→ dashboard is wired, and each endpoint works on its own, but nobody has clicked
+through it end to end. Expect bugs on the first real run.
+
+CORS no longer blocks this: the API accepts `localhost`, `127.0.0.1` and
+`*.pages.dev`, so you can serve the folder locally and test against the real
+backend today —
+
+```powershell
+cd <repo root>
+python -m http.server 8000     # then open http://localhost:8000/app.html
+```
+
+The service worker only registers over HTTPS, so install-to-home-screen still
+needs real hosting.
 
 ---
 
@@ -113,29 +124,28 @@ and `localhost` is blocked by CORS. Expect bugs on the first real run.
 
 ### P0 — get it onto a phone
 
-**1. `monium.ca` doesn't resolve.** The domain exists at Cloudflare but has no
-website attached (DNS has an SOA record and no A record). Create a Cloudflare Pages
-project connected to `KeenanDias/Monium`, then add `monium.ca` as a custom domain.
+**1. `monium.ca` doesn't resolve — the only P0 item left, and it needs your
+Cloudflare login.** The domain exists there but has no website attached (DNS has an
+SOA record and no A record). Create a Cloudflare Pages project connected to
+`KeenanDias/Monium`, build command empty, output directory `/`, then add `monium.ca`
+as a custom domain. Nothing else can be installed to a phone until this exists.
 
-**2. Merge the branch.** `main` is the live landing page. Review
-`add-ios-aws-backend`, then merge so Pages deploys it — or point Pages at the branch
-for a first test.
+**Done September 16:**
 
-**3. The app draws a fake phone around itself.** `app.html` renders inside a
-390×760 frame with a black bezel, a fake notch, and a fake status bar ("9:41",
-battery). That's right for a desktop demo. Installed on an iPhone it becomes a phone
-drawn inside a phone. `.standalone` in `css/app.css` only changes the background, so
-nothing handles this yet. The frame, notch, and `StatusBar` need to drop away on a
-real device so the app fills the screen.
-
-**4. PWA files don't exist.** No `manifest.json`, no `sw.js`, no iOS meta tags, no
-`viewport-fit=cover`. The icons are ready. Code is in `PWA_GUIDE.md` §4.
-
-**5. Local testing is blocked.** CORS allows only `https://monium.ca`, so
-`localhost` fails, and so will Cloudflare preview URLs (`*.pages.dev`). The `OPTIONS`
-methods are static mock integrations that can only return one fixed origin. To allow
-more than one: switch `OPTIONS` to the Lambda, have the Lambdas check the request's
-`Origin` against a short allowlist and echo back a match, and redeploy.
+- ~~Merge the branch~~ — merged to `main` @ `61188a6`
+- ~~The app draws a fake phone around itself~~ — the bezel, notch and fake status
+  bar now live in a `Shell` component that only renders on wide viewports or inside
+  the landing-page embed. On a phone, and in the installed PWA, the app fills the
+  screen, with safe-area padding so the bottom nav clears the home indicator.
+- ~~PWA files don't exist~~ — `manifest.json`, `sw.js` and the iOS meta tags are in.
+  The service worker is network-first and never caches API, auth or Plaid traffic.
+  **Bump `CACHE` in `sw.js` on any release that changes a shell file**, or people
+  keep the old build.
+- ~~Local testing is blocked~~ — `OPTIONS` now routes to the same Lambda as `POST`,
+  and each function echoes back the caller's origin if it matches `ALLOWED_ORIGINS`
+  or the localhost / `*.pages.dev` patterns. Verified against the deployed API:
+  known origins are echoed, an unknown one is refused, and register and login both
+  succeed from `http://localhost:8000`.
 
 ### P1 — before anyone except you uses it
 
