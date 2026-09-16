@@ -102,9 +102,22 @@ API Gateway  z2t5gxylo8 / prod        ← CORS locked to https://monium.ca
 
 ## 3. Not verified
 
-**The full flow has never run in a real browser.** Sign-in → Plaid Link → exchange
-→ dashboard is wired, and each endpoint works on its own, but nobody has clicked
-through it end to end. Expect bugs on the first real run.
+**The API chain is verified end to end; the browser click-through is not.** On
+September 16 a real account was registered, a Canadian sandbox bank linked through
+Plaid Link, a profile saved, and safe-to-spend computed — $3,200 income, $1,692.90
+of recurring commitments across 6 detected streams, $473.50/month toward a goal,
+giving **$33.96/day**. Every endpoint was exercised with real data.
+
+What hasn't happened is a person clicking through the UI from sign-up to
+dashboard. Two bugs found on the first attempt, both fixed, both of a kind only
+clicking would reveal:
+
+- `ScreenReview` still referenced `DAYS_LEFT`, so it threw immediately after Plaid
+  succeeded — a working bank connection looked like a failed one
+- nothing in the app ever collected income, so the number was $0
+
+Expect more of the same kind. Note the JSX compile check catches syntax errors
+only — both of those were runtime `ReferenceError`s that compiled fine.
 
 CORS no longer blocks this: the API accepts `localhost`, `127.0.0.1` and
 `*.pages.dev`, so you can serve the folder locally and test against the real
@@ -182,8 +195,8 @@ register still says `User already exists`.
 | # | Issue | Where |
 |---|---|---|
 | 11 | New accounts with under 90 days of history get spending inflated (e.g. ~6× with two weeks) | `monthlySpendByCategory()` |
-| 12 | Goal `"$5,000"` parses to `NaN`, so the savings target silently becomes 0 | `monthlySavingsTarget()` |
-| 13 | **Recurring Transactions coverage in Canada is untested** — the whole calculation depends on it. Test with a Canadian sandbox bank first. | Plaid |
+| 12 | ~~Goal `"$5,000"` parses to `NaN`~~ — **fixed.** The profile endpoint strips currency symbols and separators before parsing | `lambda/kyc` |
+| 13 | ~~Recurring Transactions coverage in Canada is untested~~ — **verified working.** A Canadian sandbox item returned 6 recurring streams and 7 spending categories | Plaid |
 | 14 | Rename `kyc` → `profile` (route, Lambda, DynamoDB attribute) | everywhere |
 | 15 | Statement upload is a placeholder in live mode | `ScreenConnect` |
 | 16 | Chat is scripted pattern matching, not AI. Adding OpenAI changes your Plaid data answers. | `handleUser()` |
@@ -191,6 +204,9 @@ register still says `User already exists`.
 | 18 | `aws-sdk` v2 is end-of-life and bulky; v3 is built into the runtime | all Lambdas |
 | 19 | Delete the unused `monium/openai-api-key` | Secrets Manager |
 | 20 | `CREATE_XCODE_PROJECT.md` and `AUGUST_12_LAUNCH_PLAN.md` are obsolete (Swift plan, past date) | `MoniumApp/` |
+| 21 | **No way to edit your profile after onboarding.** `ScreenProfile` only appears right after sign-up, so income and goals can't be changed without a direct API call | `app.html` |
+| 22 | Plaid detected no income on the sandbox account (its only inflow is a $4.22 interest payment), so income is self-reported in practice. Worth re-checking against a sandbox item that has payroll before assuming detection works for real users | `getCommittedSpending()` |
+| 23 | The review screen divides runway by `daysLeft`, while the server divides by 30.44 — the two "per day" figures won't match | `ScreenReview` vs `calculateSafeToSpend()` |
 
 ---
 
