@@ -2,8 +2,18 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
 <title>Monium · Live App</title>
+
+<!-- PWA: installable to the iOS home screen. iOS ignores the manifest's icons
+     and uses apple-touch-icon, so both are needed. -->
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#111111" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Monium" />
+<link rel="apple-touch-icon" href="/icons/icon-180.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
 <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -39,6 +49,52 @@ const HOST = location.hostname;
 const DEV = !HOST || HOST === "localhost" || HOST === "127.0.0.1";
 const CHROME = DEV && !EMBED;
 if (!EMBED) document.body.classList.add("standalone");
+
+/* The drawn phone — bezel, notch, fake status bar — is a desktop presentation
+   device. On a real phone, and in the installed PWA, it has to disappear or you
+   get a phone rendered inside a phone, at a fixed 760px that doesn't match the
+   screen. Framed on wide viewports and inside the landing-page embed; full
+   bleed everywhere else. */
+const STANDALONE =
+  (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+  window.navigator.standalone === true;
+
+const framedNow = () => !STANDALONE && (EMBED || window.innerWidth >= 700);
+
+function usePhoneFrame() {
+  const [framed, setFramed] = useState(framedNow);
+  useEffect(() => {
+    const onResize = () => setFramed(framedNow());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return framed;
+}
+
+function Shell({ framed, children }) {
+  if (!framed) {
+    // iOS draws its own status bar over the top inset, so pad for it rather
+    // than drawing a second one.
+    return (
+      <div className="w-full flex flex-col bg-[#fbfbfb]"
+           style={{ minHeight: "100dvh", paddingTop: "env(safe-area-inset-top)" }}>
+        <div className="flex-1 overflow-hidden relative flex flex-col">{children}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-[390px] max-w-full">
+      <div className="relative rounded-[54px] bg-neutral-900 p-3 shadow-[0_40px_90px_-30px_rgba(0,0,0,.45)]">
+        <div className="relative rounded-[44px] overflow-hidden bg-[#fbfbfb] h-[760px] flex flex-col">
+          <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-28 h-7 bg-neutral-900 rounded-full z-30" />
+          <StatusBar />
+          <div className="flex-1 overflow-hidden relative flex flex-col">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /* ===== Lucide-style icons (real Lucide path data, inlined) ===== */
 const Svg = ({ children, size = 24, sw = 2, className = "" }) => (
@@ -776,6 +832,7 @@ function App() {
   // Signed out we run the demo on DEMO_FIN; signed in, every number comes from
   // the API. `live` is what tells the screens which world they're in.
   const [live, setLive] = useState(() => !!(window.MONIUM_API && MONIUM_API.isSignedIn()));
+  const framed = usePhoneFrame();
   const [fin, setFin] = useState(DEMO_FIN);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -887,7 +944,9 @@ function App() {
   };
 
   return (
-    <div className={`w-full flex flex-col items-center ${EMBED ? "pt-20 pb-4" : "min-h-screen justify-start py-8 px-4"}`}>
+    <div className={framed
+      ? `w-full flex flex-col items-center ${EMBED ? "pt-20 pb-4" : "min-h-screen justify-start py-8 px-4"}`
+      : "w-full flex flex-col items-stretch"}>
       {CHROME && (
         <div className="w-full max-w-[430px] flex items-center justify-between mb-6 px-1">
           <div className="flex items-center gap-2 text-neutral-900 font-bold text-xl serif"><Mark size={28}/> Monium</div>
@@ -906,13 +965,7 @@ function App() {
         </div>
       )}
 
-      <div className="relative w-[390px] max-w-full">
-        <div className="relative rounded-[54px] bg-neutral-900 p-3 shadow-[0_40px_90px_-30px_rgba(0,0,0,.45)]">
-          <div className="relative rounded-[44px] overflow-hidden bg-[#fbfbfb] h-[760px] flex flex-col">
-            <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-28 h-7 bg-neutral-900 rounded-full z-30" />
-            <StatusBar />
-
-            <div className="flex-1 overflow-hidden relative flex flex-col">
+      <Shell framed={framed}>
               {phase === "auth" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenAuth onDone={() => { setLive(true); setPhase("connect"); }} /></div>}
               {phase === "connect" && (
                 <div className="flex-1 overflow-y-auto no-scroll">
@@ -942,7 +995,8 @@ function App() {
                       className="absolute right-5 bottom-24 z-30 w-14 h-14 rounded-full grid place-items-center text-white shadow-[0_12px_30px_-6px_rgba(0,0,0,.4)] bg-neutral-900 hover:scale-105 active:scale-95 transition"><Plus size={26} sw={2.5} /></button>
                   )}
 
-                  <div className="absolute bottom-0 inset-x-0 z-20 px-6 pt-3 pb-6 bg-gradient-to-t from-[#fbfbfb] via-[#fbfbfb]/95 to-transparent">
+                  <div className="absolute bottom-0 inset-x-0 z-20 px-6 pt-3 pb-6 bg-gradient-to-t from-[#fbfbfb] via-[#fbfbfb]/95 to-transparent"
+                       style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))" }}>
                     <div className="flex items-center justify-between">
                       {[["home", HomeI], ["vaults", Wallet], ["chat", MessageC], ["tips", Bulb]].map(([k, Ic]) => (
                         <button key={k} onClick={() => setTab(k)} className={`flex flex-col items-center gap-1 transition ${tab === k ? "text-neutral-900" : "text-neutral-400 hover:text-neutral-600"}`}>
@@ -956,10 +1010,7 @@ function App() {
                   {sheet && <LogSheet onClose={() => setSheet(false)} onLog={(t) => { logTxn(t); setSheet(false); }} />}
                 </>
               )}
-            </div>
-          </div>
-        </div>
-      </div>
+      </Shell>
 
       {loadError && (
         <div className="mt-4 max-w-[390px] text-[13px] text-red-600 text-center px-4">{loadError}</div>
@@ -991,6 +1042,18 @@ ReactDOM.createRoot(root).render(<EB><App /></EB>);
       if (r && !r.dataset.mounted) r.innerHTML = '<pre style="color:#b91c1c;padding:24px;white-space:pre-wrap;font:13px ui-monospace,monospace">⚠ ' + (e && (e.message || e)) + '</pre>';
     }
   })();
+</script>
+
+<script>
+  /* Service worker: required for iOS to offer "Add to Home Screen". Registered
+     after the app boots so a failure here can never block rendering. */
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("/sw.js").catch(function (e) {
+        console.warn("Service worker registration failed:", e);
+      });
+    });
+  }
 </script>
 </body>
 </html>

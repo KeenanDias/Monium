@@ -7,7 +7,7 @@ param(
     [string]$AccountId = "",
     [string]$Region = "us-east-1",
     [string]$PlaidClientId = "",
-    [string]$AllowedOrigin = "https://monium.ca",
+    [string]$AllowedOrigins = "https://monium.ca,https://www.monium.ca",
     [string]$Only = "",
     [switch]$Help
 )
@@ -50,6 +50,19 @@ if (-not $JWT_SECRET) {
     Write-Host "ERROR: Could not read monium/jwt-secret from Secrets Manager" -ForegroundColor Red
     exit 1
 }
+
+# Environment goes in as a JSON file, not the Variables={k=v,k=v} shorthand:
+# ALLOWED_ORIGINS contains commas, and the shorthand reads a comma as the start
+# of the next key.
+$EnvFile = Join-Path $env:TEMP "monium-lambda-env.json"
+$EnvJson = @{
+    Variables = @{
+        PLAID_CLIENT_ID = $PlaidClientId
+        JWT_SECRET      = $JWT_SECRET
+        ALLOWED_ORIGINS = $AllowedOrigins
+    }
+} | ConvertTo-Json -Depth 3
+[System.IO.File]::WriteAllText($EnvFile, $EnvJson)
 
 Write-Host @"
 ╔════════════════════════════════════════════════════════════════╗
@@ -139,7 +152,7 @@ function Deploy-LambdaFunction {
             --code "S3Bucket=$S3_BUCKET,S3Key=$ZipFile" `
             --timeout 30 `
             --memory-size 256 `
-            --environment "Variables={PLAID_CLIENT_ID=$PlaidClientId,JWT_SECRET=$JWT_SECRET,ALLOWED_ORIGIN=$AllowedOrigin}" `
+            --environment "file://$EnvFile" `
             --region $Region | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "create-function failed for $FunctionName" }
 
@@ -147,10 +160,18 @@ function Deploy-LambdaFunction {
     }
 
     # update-function-code does not touch configuration, so set env vars either way
+    # The AWS CLI writes progress to stderr, which PowerShell 5.1 turns into a
+    # terminating error under ErrorActionPreference=Stop - judge by exit code
+    $ErrorActionPreference = "Continue"
     aws lambda update-function-configuration `
         --function-name $FunctionName `
-        --environment "Variables={PLAID_CLIENT_ID=$PlaidClientId,JWT_SECRET=$JWT_SECRET,ALLOWED_ORIGIN=$AllowedOrigin}" `
-        --region $Region 2>&1 | Out-Null
+        --environment "file://$EnvFile" `
+        --region $Region 2>$null | Out-Null
+    $configExit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($configExit -ne 0) { throw "update-function-configuration failed for $FunctionName" }
+
+    aws lambda wait function-updated-v2 --function-name $FunctionName --region $Region
 
     # Clean up
     Remove-Item $ZipFile

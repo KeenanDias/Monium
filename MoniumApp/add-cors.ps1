@@ -4,23 +4,25 @@
 #
 # Browsers send a preflight OPTIONS request before any cross-origin POST. Without
 # a method to answer it, every call from the web app is blocked before it starts.
-# This adds a MOCK-integration OPTIONS method (no Lambda invoked, no cost) that
-# returns the CORS headers.
 #
-# The POST responses carry their own Access-Control-Allow-Origin header, set by
-# each Lambda via the ALLOWED_ORIGIN environment variable.
+# OPTIONS is routed to the same Lambda that serves POST (AWS_PROXY) rather than a
+# mock integration. A mock can only return one hardcoded origin, which would lock
+# the API to production and break localhost and Cloudflare preview deploys. The
+# Lambda matches the caller's Origin against its allowlist and echoes it back.
+#
+# The allowlist itself lives in the ALLOWED_ORIGINS environment variable, set by
+# deploy-lambdas.ps1.
 
 param(
     [string]$ApiId = "",
     [string]$Region = "us-east-1",
-    [string]$Origin = "https://monium.ca",
     [switch]$Help
 )
 
 if ($Help -or -not $ApiId) {
     Write-Host @"
 USAGE:
-  .\add-cors.ps1 -ApiId <rest-api-id> [-Region us-east-1] [-Origin https://monium.ca]
+  .\add-cors.ps1 -ApiId <rest-api-id> [-Region us-east-1]
 
 Find the API id in api-config.json, or with:
   aws apigateway get-rest-apis --query "items[?name=='monium-api'].id" --output text
@@ -30,66 +32,72 @@ Find the API id in api-config.json, or with:
 
 $ErrorActionPreference = "Stop"
 
-# API Gateway wants these as JSON documents. Passing them inline is unreliable on
-# Windows - the CLI strips quotes - so write them to temp files and use file://
-$tmp = Join-Path $env:TEMP "monium-cors"
-New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+$AccountId = aws sts get-caller-identity --query Account --output text
+if ($LASTEXITCODE -ne 0) { throw "Could not resolve AWS account id" }
 
-$requestTemplate = '{"application/json": "{\"statusCode\": 200}"}'
-$methodParams = '{"method.response.header.Access-Control-Allow-Headers": true, "method.response.header.Access-Control-Allow-Methods": true, "method.response.header.Access-Control-Allow-Origin": true}'
-$integrationParams = '{"method.response.header.Access-Control-Allow-Headers": "''Content-Type,Authorization''", "method.response.header.Access-Control-Allow-Methods": "''OPTIONS,POST''", "method.response.header.Access-Control-Allow-Origin": "''' + $Origin + '''"}'
+# Which Lambda backs each route
+$RouteLambda = @{
+    "/auth"                 = "monium-auth"
+    "/kyc"                  = "monium-kyc"
+    "/plaid"                = "monium-plaid-link-token"
+    "/plaid-exchange"       = "monium-plaid-exchange"
+    "/process-transactions" = "monium-process-transactions"
+}
 
-$reqFile = Join-Path $tmp "request-template.json"
-$mrpFile = Join-Path $tmp "method-response-params.json"
-$irpFile = Join-Path $tmp "integration-response-params.json"
-
-[System.IO.File]::WriteAllText($reqFile, $requestTemplate)
-[System.IO.File]::WriteAllText($mrpFile, $methodParams)
-[System.IO.File]::WriteAllText($irpFile, $integrationParams)
-
-Write-Host "Enabling CORS on API $ApiId for origin $Origin" -ForegroundColor Cyan
+Write-Host "Enabling CORS on API $ApiId" -ForegroundColor Cyan
 
 $resources = aws apigateway get-resources --rest-api-id $ApiId --region $Region | ConvertFrom-Json
 
 foreach ($r in $resources.items) {
     if (-not $r.pathPart) { continue }  # skip the root resource
 
-    Write-Host "  - $($r.path)"
+    $fn = $RouteLambda[$r.path]
+    if (-not $fn) {
+        Write-Host "  - $($r.path) (no Lambda mapped, skipping)" -ForegroundColor Yellow
+        continue
+    }
 
-    # These four calls are idempotent enough to re-run: a ConflictException just
-    # means the method already exists, which is fine.
+    Write-Host "  - $($r.path) -> $fn"
+
+    # Remove any previous OPTIONS method so a leftover mock integration and its
+    # response mappings can't shadow the proxy integration below.
     $ErrorActionPreference = "Continue"
+    aws apigateway delete-method `
+        --rest-api-id $ApiId --resource-id $r.id `
+        --http-method OPTIONS --region $Region 2>$null | Out-Null
+    $ErrorActionPreference = "Stop"
 
     aws apigateway put-method `
         --rest-api-id $ApiId --resource-id $r.id `
         --http-method OPTIONS --authorization-type NONE `
-        --region $Region 2>$null | Out-Null
+        --region $Region | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "put-method OPTIONS failed for $($r.path)" }
+
+    $lambdaArn = "arn:aws:lambda:${Region}:${AccountId}:function:${fn}"
+    $uri = "arn:aws:apigateway:${Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations"
 
     aws apigateway put-integration `
         --rest-api-id $ApiId --resource-id $r.id `
-        --http-method OPTIONS --type MOCK `
-        --request-templates "file://$reqFile" `
-        --region $Region 2>$null | Out-Null
+        --http-method OPTIONS --type AWS_PROXY `
+        --integration-http-method POST --uri $uri `
+        --region $Region | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "put-integration OPTIONS failed for $($r.path)" }
 
-    aws apigateway put-method-response `
-        --rest-api-id $ApiId --resource-id $r.id `
-        --http-method OPTIONS --status-code 200 `
-        --response-parameters "file://$mrpFile" `
+    # Let API Gateway invoke the function for OPTIONS as well as POST.
+    # A ConflictException just means the statement already exists.
+    $ErrorActionPreference = "Continue"
+    aws lambda add-permission `
+        --function-name $fn `
+        --statement-id "$fn-apigw-options" `
+        --action lambda:InvokeFunction `
+        --principal apigateway.amazonaws.com `
+        --source-arn "arn:aws:execute-api:${Region}:${AccountId}:${ApiId}/*/OPTIONS/*" `
         --region $Region 2>$null | Out-Null
-
-    aws apigateway put-integration-response `
-        --rest-api-id $ApiId --resource-id $r.id `
-        --http-method OPTIONS --status-code 200 `
-        --response-parameters "file://$irpFile" `
-        --region $Region 2>$null | Out-Null
-
     $ErrorActionPreference = "Stop"
 }
 
 Write-Host "Deploying to prod stage..." -ForegroundColor Cyan
 aws apigateway create-deployment --rest-api-id $ApiId --stage-name prod --region $Region | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Deployment failed" }
-
-Remove-Item -Recurse -Force $tmp
 
 Write-Host "CORS enabled and deployed." -ForegroundColor Green
