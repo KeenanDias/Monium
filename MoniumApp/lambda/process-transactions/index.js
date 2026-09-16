@@ -351,11 +351,10 @@ exports.handler = async (event) => {
       return respond(404, { error: "User not found" });
     }
 
-    const profile = userResult.Item.profile || userResult.Item.kyc;
-
-    if (!profile) {
-      return respond(400, { error: "User must complete onboarding first" });
-    }
+    // Onboarding is optional. Plaid-detected income is the more reliable source
+    // anyway, so a missing profile just means no self-reported income and no
+    // savings target - not a reason to refuse the whole calculation.
+    const profile = userResult.Item.profile || userResult.Item.kyc || {};
 
     // The access token lives server-side only - it is written by
     // monium-plaid-exchange and never travels to or from the client

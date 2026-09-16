@@ -465,7 +465,7 @@ function ScreenReview({ goals, fin, onDone }) {
       <div className="rounded-2xl p-4 mb-5 border border-neutral-900 bg-neutral-900 text-white">
         <div className="flex items-center gap-2 text-white/60 text-[11px] font-bold tracking-[.14em] uppercase mb-1"><Sparkles size={14}/> Raw Liquid Runway</div>
         <div className="text-white text-[34px] font-extrabold tracking-tight tabular-nums">{moneyW(runway)}</div>
-        <div className="text-white/55 text-[13px]">Fluid cash for the month — this powers your <b className="text-white">{money(runway / DAYS_LEFT)}/day</b> allowance.</div>
+        <div className="text-white/55 text-[13px]">Fluid cash until payday — this powers your <b className="text-white">{money(runway / (fin.daysLeft || 30))}/day</b> allowance.</div>
       </div>
       <button onClick={onDone}
         className="w-full rounded-xl py-3.5 font-semibold text-white flex items-center justify-center gap-2 bg-neutral-900 hover:bg-neutral-800 transition">
