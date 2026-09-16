@@ -72,32 +72,61 @@ exports.handler = async (event) => {
 
   try {
     const body = JSON.parse(event.body || '{}');
-    const { userId, name, age, income, jobTitle, goal } = body;
+    const {
+      userId,
+      name,
+      monthlyIncome,
+      incomePeriod,
+      goalLabel,
+      goalAmount,
+      goalTargetDate
+    } = body;
 
-    if (!userId || !name || !age || !income || !jobTitle || !goal) {
-      return respond(400, { error: 'Missing required fields' });
+    if (!userId) {
+      return respond(400, { error: 'Missing required field: userId' });
     }
 
-    // Validate income is a number
-    const numIncome = parseFloat(income);
-    if (isNaN(numIncome)) {
-      return respond(400, { error: 'Income must be a valid number' });
+    // Strips "$" and thousands separators, so "$5,000" doesn't become NaN and
+    // then silently zero
+    const parseMoney = (v) => {
+      if (v === undefined || v === null || v === '') return undefined;
+      const n = parseFloat(String(v).replace(/[^0-9.]/g, ''));
+      return isNaN(n) ? undefined : n;
+    };
+
+    // Income is the one figure nothing else can supply when Plaid finds no
+    // recurring deposits, so it's the only required answer.
+    const income = parseMoney(monthlyIncome);
+    if (income === undefined || income < 0) {
+      return respond(400, { error: 'Enter your take-home pay as a number' });
     }
 
-    // Update user with KYC data
+    const profile = {
+      name: name || undefined,
+      // Stored monthly regardless of how it was entered, so every reader can
+      // assume one unit
+      monthlyIncome: incomePeriod === 'annual' ? income / 12 : income,
+      incomePeriod: 'monthly',
+      goalLabel: goalLabel || undefined,
+      goalAmount: parseMoney(goalAmount),
+      goalTargetDate: goalTargetDate || undefined,
+      updatedAt: new Date().toISOString()
+    };
+
+    // DynamoDB rejects undefined attribute values outright
+    Object.keys(profile).forEach((k) => {
+      if (profile[k] === undefined) delete profile[k];
+    });
+
     await dynamodb.update({
       TableName: USERS_TABLE,
       Key: { userId },
-      UpdateExpression: 'SET kyc = :kycData, kycComplete = :true',
+      // #p via ExpressionAttributeNames in case "profile" is ever treated as a
+      // reserved word
+      UpdateExpression: 'SET #p = :profile, profileComplete = :true',
+      ExpressionAttributeNames: { '#p': 'profile' },
       ExpressionAttributeValues: {
-        ':kycData': {
-          name,
-          age: parseInt(age),
-          income: numIncome,
-          jobTitle,
-          goal,
-          completedAt: new Date().toISOString()
-        },
+        ':profile': profile,
         ':true': true
       }
     }).promise();

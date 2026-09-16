@@ -304,7 +304,95 @@ function ScreenAuth({ onDone }) {
 }
 
 /* ============================================================== */
-/*  SCREEN 1 — Connect                                            */
+/*  SCREEN 1 — Your money                                         */
+/* ============================================================== */
+function ScreenProfile({ onDone }) {
+  const [income, setIncome] = useState("");
+  const [period, setPeriod] = useState("monthly");
+  const [goalLabel, setGoalLabel] = useState("");
+  const [goalAmount, setGoalAmount] = useState("");
+  const [goalDate, setGoalDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await MONIUM_API.saveProfile({
+        monthlyIncome: income,
+        incomePeriod: period,
+        goalLabel: goalLabel || undefined,
+        goalAmount: goalAmount || undefined,
+        goalTargetDate: goalDate || undefined
+      });
+      onDone();
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  const field = "w-full rounded-xl border border-neutral-200 px-3.5 py-3 text-[15px] outline-none focus:border-neutral-900 transition";
+
+  return (
+    <div className="px-5 pt-2 pb-6 anim-fadeUp">
+      <div className="flex items-center gap-3 mb-5">
+        <Mark />
+        <div>
+          <div className="text-neutral-900 font-semibold text-[15px]">A couple of numbers</div>
+          <div className="text-neutral-500 text-xs">So today's number means something</div>
+        </div>
+      </div>
+
+      <div className="space-y-2.5 mb-5">
+        <Bubble>What actually <b className="text-neutral-900">lands in your account</b> each month? After tax, not your salary.</Bubble>
+      </div>
+
+      <form onSubmit={submit} className="space-y-2.5">
+        <input type="text" inputMode="decimal" required value={income}
+          onChange={(e) => setIncome(e.target.value)}
+          placeholder="Take-home pay, e.g. 3,200" className={field} />
+
+        <div className="flex gap-2">
+          {[["monthly", "per month"], ["annual", "per year"]].map(([k, lbl]) => (
+            <button key={k} type="button" onClick={() => setPeriod(k)}
+              className={`flex-1 rounded-xl border px-3 py-2.5 text-[13px] font-semibold transition ${period === k ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-white text-neutral-500"}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        <div className="pt-2 text-neutral-400 text-[11px] font-bold tracking-[.16em] uppercase">Saving for something? (optional)</div>
+        <input type="text" value={goalLabel} onChange={(e) => setGoalLabel(e.target.value)}
+          placeholder="What for, e.g. Japan trip" className={field} />
+        <div className="flex gap-2">
+          <input type="text" inputMode="decimal" value={goalAmount}
+            onChange={(e) => setGoalAmount(e.target.value)}
+            placeholder="Amount" className={field} />
+          <input type="date" value={goalDate} onChange={(e) => setGoalDate(e.target.value)}
+            className={field} />
+        </div>
+
+        {error && <div className="text-[13px] text-red-600 px-1">{error}</div>}
+
+        <button type="submit" disabled={busy}
+          className="w-full rounded-xl bg-neutral-900 text-white py-3 text-[15px] font-semibold hover:bg-neutral-800 disabled:opacity-50 transition">
+          {busy ? "Saving…" : "Continue"}
+        </button>
+      </form>
+
+      <div className="mt-4 flex items-start gap-2 text-[12px] text-neutral-400">
+        <Bulb size={14} className="mt-0.5 shrink-0" />
+        <span>If Monium spots your paycheque in your bank data, it'll use that instead — it's more accurate than memory.</span>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================== */
+/*  SCREEN 2 — Connect                                            */
 /* ============================================================== */
 function ScreenConnect({ onDone, live }) {
   const [phase, setPhase] = useState("idle");
@@ -966,7 +1054,8 @@ function App() {
       )}
 
       <Shell framed={framed}>
-              {phase === "auth" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenAuth onDone={() => { setLive(true); setPhase("connect"); }} /></div>}
+              {phase === "auth" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenAuth onDone={() => { setLive(true); setPhase("profile"); }} /></div>}
+              {phase === "profile" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenProfile onDone={() => setPhase("connect")} /></div>}
               {phase === "connect" && (
                 <div className="flex-1 overflow-y-auto no-scroll">
                   <ScreenConnect live={live} onDone={(result) => {
