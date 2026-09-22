@@ -137,11 +137,27 @@ needs real hosting.
 
 ### P0 — get it onto a phone
 
-**1. `monium.ca` doesn't resolve — the only P0 item left, and it needs your
-Cloudflare login.** The domain exists there but has no website attached (DNS has an
-SOA record and no A record). Create a Cloudflare Pages project connected to
-`KeenanDias/Monium`, build command empty, output directory `/`, then add `monium.ca`
-as a custom domain. Nothing else can be installed to a phone until this exists.
+**1. The app is live — but at a Worker URL, not `monium.ca`.**
+
+It's served by a Cloudflare **Worker** (not Pages) at
+**`https://monium.diaskeenana.workers.dev/app`**. Verified serving `/app`,
+`/app.html`, `manifest.json`, `sw.js`, `js/api.js`, `css/` and the icons, all 200.
+
+`monium.ca` still doesn't resolve — the zone is on Cloudflare's nameservers
+(`sue`/`bart.ns.cloudflare.com`) but has no A or CNAME record. To attach it, add it
+as a **custom domain on the Worker** (Workers & Pages → the `monium` Worker →
+Settings → Domains & Routes), not as a Pages custom domain.
+
+Worth doing, because the Worker URL is fine for testing but `monium.ca` is the
+address a home-screen icon should point at.
+
+**Note for whoever hosts this next:** the API's CORS allowlist is what decides
+which origins can reach the backend. It currently covers `monium.ca`,
+`www.monium.ca`, `*.pages.dev`, `*.workers.dev`, `localhost` and `127.0.0.1`.
+A new hostname means adding it to `ALLOWED_ORIGINS` (or a pattern in
+`ORIGIN_PATTERNS`) and redeploying, or every call fails with
+"Can't reach Monium" — which is what a CORS block looks like from `fetch`, and
+reads like a network outage rather than a config problem.
 
 **Done September 16:**
 
