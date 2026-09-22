@@ -16,7 +16,9 @@ const ORIGIN_PATTERNS = [
   /^http:\/\/127\.0\.0\.1(:\d+)?$/,
   // Cloudflare serves each deployment at <hash>.<project>.pages.dev, so allow
   // any depth of subdomain rather than a single label
-  /^https:\/\/([a-z0-9-]+\.)+pages\.dev$/
+  /^https:\/\/([a-z0-9-]+\.)+pages\.dev$/,
+  // Workers are served from <name>.<account>.workers.dev
+  /^https:\/\/([a-z0-9-]+\.)+workers\.dev$/
 ];
 
 function allowedOrigin(event) {
