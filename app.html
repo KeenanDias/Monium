@@ -67,7 +67,7 @@ function useIsDesktop() {
   return desktop;
 }
 
-function Shell({ desktop, children }) {
+function Shell({ children }) {
   // 100dvh, not 100vh: on iOS the address bar makes vh overshoot, which is what
   // pushes a fixed bottom bar off the screen.
   // paddingTop clears the notch - iOS draws its own status bar over that inset,
@@ -75,7 +75,9 @@ function Shell({ desktop, children }) {
   return (
     <div className="w-full flex flex-col bg-[#fbfbfb]"
          style={{ minHeight: "100dvh", height: "100dvh", paddingTop: "env(safe-area-inset-top)" }}>
-      <div className={`flex-1 min-h-0 w-full flex flex-col relative ${desktop ? "mx-auto max-w-[880px]" : ""}`}>
+      {/* Full bleed at every size - no centred column, no max width. The app
+          spans the whole viewport on desktop the way a website does. */}
+      <div className="flex-1 min-h-0 w-full flex flex-col relative">
         {children}
       </div>
     </div>
@@ -116,6 +118,27 @@ const Send     = (p) => <Svg {...p}><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 
 const money  = (n, dp = 2) => "$" + Number(Math.abs(n)).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp });
 const moneyW = (n) => "$" + Math.round(n).toLocaleString("en-US");
 const clamp  = (v, a, b) => Math.min(b, Math.max(a, v));
+
+/* Greeting follows the clock on the user's own device. new Date() is already in
+   their local timezone, so this needs no geolocation permission, no IP lookup
+   and no API call - it's correct wherever they are, including after they fly. */
+const greetingFor = (hour) =>
+  hour < 5    ? "Hello,"
+  : hour < 12 ? "Good morning,"
+  : hour < 18 ? "Good afternoon,"
+  : hour < 22 ? "Good evening,"
+  : "Hello,";
+
+function useGreeting() {
+  const [greeting, setGreeting] = useState(() => greetingFor(new Date().getHours()));
+  useEffect(() => {
+    // Re-check every minute, so a tab left open overnight doesn't still say
+    // "Good morning" at dinner time.
+    const id = setInterval(() => setGreeting(greetingFor(new Date().getHours())), 60000);
+    return () => clearInterval(id);
+  }, []);
+  return greeting;
+}
 
 function useCountUp(value, duration = 650) {
   const [d, setD] = useState(value);
@@ -566,6 +589,7 @@ function Block({ icon: I, title, badge, amount, children }) {
 /* ============================================================== */
 function Dashboard({ daily, spent, streak, goalBite, txns, fin, name, onRefresh, refreshing }) {
   const [showCalc, setShowCalc] = useState(false);
+  const greeting = useGreeting();
   const remaining = daily - spent;
   const over = remaining < 0;
   const ratio = remaining / (daily || 1);
@@ -575,7 +599,7 @@ function Dashboard({ daily, spent, streak, goalBite, txns, fin, name, onRefresh,
   return (
     <div className="px-5 pt-2 pb-28 anim-fadeUp">
       <div className="flex items-center justify-between mb-4">
-        <div><div className="text-neutral-400 text-[13px]">Good morning,</div>
+        <div><div className="text-neutral-400 text-[13px]">{greeting}</div>
           <div className="text-neutral-900 font-bold text-lg tracking-tight flex items-center gap-1.5 serif">{name || "there"}</div></div>
         <button onClick={onRefresh} disabled={refreshing} title="Refresh from your bank"
           className={`transition ${refreshing ? "opacity-40" : "hover:scale-105 active:scale-95"}`}>
@@ -947,9 +971,16 @@ function App() {
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2400); };
   const reset = () => { setPhase("connect"); setTab("home"); setGoals(INITIAL_GOALS); setSpent(0); setTxns([]); setSheet(false); setMessages(messages.slice(0,1)); };
 
-  const signedInAs = live && MONIUM_API.session.get()
-    ? MONIUM_API.session.get().email.split("@")[0]
-    : "Alex";
+  // Display name derived from the email local part, since nothing collects a
+  // real name yet: "diaskeenana@gmail.com" -> "Diaskeenana",
+  // "first.last@..." -> "First", "sam99@..." -> "Sam".
+  const signedInAs = (() => {
+    const session = live && MONIUM_API.session.get();
+    if (!session) return "Alex";
+    const local = String(session.email || "").split("@")[0];
+    const first = local.split(/[._\-+]/)[0].replace(/\d+$/, "") || local;
+    return first ? first.charAt(0).toUpperCase() + first.slice(1) : "there";
+  })();
 
   // A signed-in user with a bank already linked should land on their numbers,
   // not be asked to connect again.
@@ -1052,7 +1083,7 @@ function App() {
         </div>
       )}
 
-      <Shell desktop={desktop}>
+      <Shell>
               {phase === "auth" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenAuth onDone={() => { setLive(true); setPhase("profile"); }} /></div>}
               {phase === "profile" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenProfile onDone={() => setPhase("connect")} /></div>}
               {phase === "connect" && (
@@ -1092,7 +1123,13 @@ function App() {
                     ? "order-first shrink-0 px-6 py-3 border-b border-neutral-200 bg-[#fbfbfb]"
                     : "absolute bottom-0 inset-x-0 z-20 px-6 pt-3 pb-6 bg-gradient-to-t from-[#fbfbfb] via-[#fbfbfb]/95 to-transparent"}
                        style={desktop ? undefined : { paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))" }}>
-                    <div className={desktop ? "flex items-center gap-2" : "flex items-center justify-between"}>
+                    <div className={desktop ? "flex items-center gap-5" : "flex items-center justify-between"}>
+                      {desktop && (
+                        <div className="flex items-center gap-2.5 shrink-0 mr-2">
+                          <Mark size={44} />
+                          <span className="serif text-[25px] font-bold tracking-tight text-neutral-900 leading-none">Monium</span>
+                        </div>
+                      )}
                       {[["home", HomeI, "Today"], ["vaults", Wallet, "Vaults"], ["chat", MessageC, "Chat"], ["tips", Bulb, "Tips"]].map(([k, Ic, label]) => (
                         <button key={k} onClick={() => setTab(k)}
                           className={desktop
