@@ -14,7 +14,9 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://monium.ca,https
 const ORIGIN_PATTERNS = [
   /^http:\/\/localhost(:\d+)?$/,
   /^http:\/\/127\.0\.0\.1(:\d+)?$/,
-  /^https:\/\/[a-z0-9-]+\.pages\.dev$/
+  // Cloudflare serves each deployment at <hash>.<project>.pages.dev, so allow
+  // any depth of subdomain rather than a single label
+  /^https:\/\/([a-z0-9-]+\.)+pages\.dev$/
 ];
 
 function allowedOrigin(event) {
