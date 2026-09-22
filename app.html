@@ -50,47 +50,33 @@ const DEV = !HOST || HOST === "localhost" || HOST === "127.0.0.1";
 const CHROME = DEV && !EMBED;
 if (!EMBED) document.body.classList.add("standalone");
 
-/* The drawn phone — bezel, notch, fake status bar — is a desktop presentation
-   device. On a real phone, and in the installed PWA, it has to disappear or you
-   get a phone rendered inside a phone, at a fixed 760px that doesn't match the
-   screen. Framed on wide viewports and inside the landing-page embed; full
-   bleed everywhere else. */
-const STANDALONE =
-  (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
-  window.navigator.standalone === true;
+/* No drawn phone anywhere. The app fills whatever screen it's on: a real web
+   app on desktop, full bleed on a phone and in the installed PWA. The old
+   bezel/notch/fake-status-bar treatment only ever made sense as a demo prop,
+   and on an actual phone it rendered a phone inside a phone. */
+const DESKTOP_MIN_WIDTH = 768;
+const isDesktopNow = () => window.innerWidth >= DESKTOP_MIN_WIDTH;
 
-const framedNow = () => !STANDALONE && (EMBED || window.innerWidth >= 700);
-
-function usePhoneFrame() {
-  const [framed, setFramed] = useState(framedNow);
+function useIsDesktop() {
+  const [desktop, setDesktop] = useState(isDesktopNow);
   useEffect(() => {
-    const onResize = () => setFramed(framedNow());
+    const onResize = () => setDesktop(isDesktopNow());
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
-  return framed;
+  return desktop;
 }
 
-function Shell({ framed, children }) {
-  if (!framed) {
-    // iOS draws its own status bar over the top inset, so pad for it rather
-    // than drawing a second one.
-    return (
-      <div className="w-full flex flex-col bg-[#fbfbfb]"
-           style={{ minHeight: "100dvh", paddingTop: "env(safe-area-inset-top)" }}>
-        <div className="flex-1 overflow-hidden relative flex flex-col">{children}</div>
-      </div>
-    );
-  }
-
+function Shell({ desktop, children }) {
+  // 100dvh, not 100vh: on iOS the address bar makes vh overshoot, which is what
+  // pushes a fixed bottom bar off the screen.
+  // paddingTop clears the notch - iOS draws its own status bar over that inset,
+  // so we leave room for it rather than drawing one.
   return (
-    <div className="relative w-[390px] max-w-full">
-      <div className="relative rounded-[54px] bg-neutral-900 p-3 shadow-[0_40px_90px_-30px_rgba(0,0,0,.45)]">
-        <div className="relative rounded-[44px] overflow-hidden bg-[#fbfbfb] h-[760px] flex flex-col">
-          <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-28 h-7 bg-neutral-900 rounded-full z-30" />
-          <StatusBar />
-          <div className="flex-1 overflow-hidden relative flex flex-col">{children}</div>
-        </div>
+    <div className="w-full flex flex-col bg-[#fbfbfb]"
+         style={{ minHeight: "100dvh", height: "100dvh", paddingTop: "env(safe-area-inset-top)" }}>
+      <div className={`flex-1 min-h-0 w-full flex flex-col relative ${desktop ? "mx-auto max-w-[880px]" : ""}`}>
+        {children}
       </div>
     </div>
   );
@@ -935,7 +921,7 @@ function App() {
   // Signed out we run the demo on DEMO_FIN; signed in, every number comes from
   // the API. `live` is what tells the screens which world they're in.
   const [live, setLive] = useState(() => !!(window.MONIUM_API && MONIUM_API.isSignedIn()));
-  const framed = usePhoneFrame();
+  const desktop = useIsDesktop();
   const [fin, setFin] = useState(DEMO_FIN);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -1047,9 +1033,7 @@ function App() {
   };
 
   return (
-    <div className={framed
-      ? `w-full flex flex-col items-center ${EMBED ? "pt-20 pb-4" : "min-h-screen justify-start py-8 px-4"}`
-      : "w-full flex flex-col items-stretch"}>
+    <div className="w-full flex flex-col items-stretch">
       {CHROME && (
         <div className="w-full max-w-[430px] flex items-center justify-between mb-6 px-1">
           <div className="flex items-center gap-2 text-neutral-900 font-bold text-xl serif"><Mark size={28}/> Monium</div>
@@ -1068,7 +1052,7 @@ function App() {
         </div>
       )}
 
-      <Shell framed={framed}>
+      <Shell desktop={desktop}>
               {phase === "auth" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenAuth onDone={() => { setLive(true); setPhase("profile"); }} /></div>}
               {phase === "profile" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenProfile onDone={() => setPhase("connect")} /></div>}
               {phase === "connect" && (
@@ -1101,13 +1085,23 @@ function App() {
                       className="absolute right-5 bottom-24 z-30 w-14 h-14 rounded-full grid place-items-center text-white shadow-[0_12px_30px_-6px_rgba(0,0,0,.4)] bg-neutral-900 hover:scale-105 active:scale-95 transition"><Plus size={26} sw={2.5} /></button>
                   )}
 
-                  <div className="absolute bottom-0 inset-x-0 z-20 px-6 pt-3 pb-6 bg-gradient-to-t from-[#fbfbfb] via-[#fbfbfb]/95 to-transparent"
-                       style={{ paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))" }}>
-                    <div className="flex items-center justify-between">
-                      {[["home", HomeI], ["vaults", Wallet], ["chat", MessageC], ["tips", Bulb]].map(([k, Ic]) => (
-                        <button key={k} onClick={() => setTab(k)} className={`flex flex-col items-center gap-1 transition ${tab === k ? "text-neutral-900" : "text-neutral-400 hover:text-neutral-600"}`}>
-                          <Ic size={22} />
-                          <span className={`w-1 h-1 rounded-full ${tab === k ? "bg-neutral-900" : "bg-transparent"}`} />
+                  {/* Bottom tab bar on a phone, a labelled top bar on desktop —
+                      a row of unlabelled icons pinned to the bottom of a 27"
+                      monitor reads as a broken mobile site. */}
+                  <div className={desktop
+                    ? "order-first shrink-0 px-6 py-3 border-b border-neutral-200 bg-[#fbfbfb]"
+                    : "absolute bottom-0 inset-x-0 z-20 px-6 pt-3 pb-6 bg-gradient-to-t from-[#fbfbfb] via-[#fbfbfb]/95 to-transparent"}
+                       style={desktop ? undefined : { paddingBottom: "calc(1.5rem + env(safe-area-inset-bottom))" }}>
+                    <div className={desktop ? "flex items-center gap-2" : "flex items-center justify-between"}>
+                      {[["home", HomeI, "Today"], ["vaults", Wallet, "Vaults"], ["chat", MessageC, "Chat"], ["tips", Bulb, "Tips"]].map(([k, Ic, label]) => (
+                        <button key={k} onClick={() => setTab(k)}
+                          className={desktop
+                            ? `flex items-center gap-2 px-3.5 py-2 rounded-full text-[14px] font-semibold transition ${tab === k ? "bg-neutral-900 text-white" : "text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100"}`
+                            : `flex flex-col items-center gap-1 transition ${tab === k ? "text-neutral-900" : "text-neutral-400 hover:text-neutral-600"}`}>
+                          <Ic size={desktop ? 18 : 22} />
+                          {desktop
+                            ? <span>{label}</span>
+                            : <span className={`w-1 h-1 rounded-full ${tab === k ? "bg-neutral-900" : "bg-transparent"}`} />}
                         </button>
                       ))}
                     </div>

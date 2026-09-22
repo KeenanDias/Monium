@@ -12,6 +12,17 @@
 <link rel="stylesheet" href="css/landing.css" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+<!-- Motion stack. All deferred: they must never block first paint, and the page
+     is fully usable if any of them fail to load. Versions are pinned to builds
+     verified present on jsDelivr. -->
+<script defer src="https://cdn.jsdelivr.net/npm/lenis@1.1.18/dist/lenis.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+<!-- three + vanta are ~600KB and drive a WebGL loop, so landing.js only starts
+     them on wide screens with motion allowed -->
+<script defer src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.fog.min.js"></script>
 </head>
 <body>
 
@@ -137,6 +148,8 @@
 <!-- config -> shared backend -> page logic (order matters) -->
 <script src="js/config.js"></script>
 <script src="js/supabase.js"></script>
-<script src="js/landing.js"></script>
+<!-- deferred so it runs after Lenis/GSAP/Vanta above; deferred scripts keep
+     document order, and config/supabase are classic so they still run first -->
+<script defer src="js/landing.js"></script>
 </body>
 </html>

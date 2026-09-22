@@ -166,6 +166,19 @@ footer { border-top: 1px solid var(--line); padding: 50px 0 60px; }
 .reveal { opacity: 0; transform: translateY(28px); transition: opacity .7s ease, transform .7s cubic-bezier(.2,.8,.2,1); }
 .reveal.in { opacity: 1; transform: none; }
 
+/* Lenis owns scrolling once it initialises; CSS smooth scrolling would fight it.
+   The class is only added by landing.js after Lenis actually starts, so the
+   native fallback still applies if the script never loads. */
+html.lenis-active { scroll-behavior: auto; }
+html.lenis-active, html.lenis-active body { height: auto; }
+.lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+
+/* Vanta renders a canvas into .mesh. Fade the CSS blobs out when it takes over
+   so the two backgrounds don't stack. */
+.mesh canvas { display: block; }
+.blob { transition: opacity .8s ease; }
+body.vanta-on .blob { opacity: 0; }
+
 /* responsive */
 @media (max-width: 900px) { .features, .reviews { grid-template-columns: 1fr; } }
 @media (max-width: 620px) {
