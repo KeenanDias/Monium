@@ -428,7 +428,7 @@ function ScreenConnect({ onDone, live }) {
         <Mark />
         <div>
           <div className="text-neutral-900 font-semibold text-[15px] flex items-center gap-1.5">Monium <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-neutral-900 text-white">BETA</span></div>
-          <div className="text-neutral-500 text-xs flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-neutral-900"/>online</div>
+          <div className="text-neutral-500 text-xs flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"/>online</div>
         </div>
       </div>
       <div className="space-y-2.5 mb-5">
@@ -722,32 +722,47 @@ function Chat({ messages, typing, onSend }) {
   useEffect(() => { const el = listRef.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" }); }, [messages, typing]);
   const send = (t) => { const v = (t ?? text).trim(); if (!v) return; onSend(v); setText(""); };
   return (
-    <div className="flex flex-col h-full anim-fadeIn">
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-neutral-200">
+    <div className="flex-1 min-h-0 flex flex-col anim-fadeIn">
+      <div className="shrink-0 flex items-center gap-3 px-5 py-3 border-b border-neutral-200">
         <Mark size={34} />
-        <div><div className="text-neutral-900 font-semibold text-[15px]">Monium</div><div className="text-neutral-500 text-xs flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-neutral-900"/>online</div></div>
+        <div><div className="text-neutral-900 font-semibold text-[15px]">Monium</div><div className="text-neutral-500 text-xs flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"/>online</div></div>
       </div>
-      <div ref={listRef} className="flex-1 overflow-y-auto no-scroll px-5 py-4 space-y-2.5">
-        {messages.map((m, i) => (
-          m.from === "user"
-            ? <div key={i} className="max-w-[82%] ml-auto rounded-2xl rounded-br-md bg-neutral-900 text-white px-3.5 py-2.5 text-[13.5px] font-medium anim-fadeUp">{m.text}</div>
-            : <div key={i} className="max-w-[86%] rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-neutral-800 text-[13.5px] leading-snug anim-fadeUp" dangerouslySetInnerHTML={{ __html: m.text }} />
-        ))}
-        {typing && (
-          <div className="dotpulse max-w-[40%] rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-3 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-neutral-500"/><span className="w-1.5 h-1.5 rounded-full bg-neutral-500"/><span className="w-1.5 h-1.5 rounded-full bg-neutral-500"/>
-          </div>
-        )}
+
+      {/* The only scrolling region. min-h-0 is what lets a flex child actually
+          shrink and scroll instead of growing and pushing the composer off. */}
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto no-scroll px-5 py-4">
+        {/* justify-end keeps a short conversation pinned to the bottom, so the
+            newest message sits just above the composer rather than hanging
+            under the header. */}
+        <div className="min-h-full flex flex-col justify-end space-y-2.5">
+          {messages.map((m, i) => (
+            m.from === "user"
+              ? <div key={i} className="max-w-[82%] ml-auto rounded-2xl rounded-br-md bg-neutral-900 text-white px-3.5 py-2.5 text-[13.5px] font-medium anim-fadeUp">{m.text}</div>
+              : <div key={i} className="max-w-[86%] rounded-2xl rounded-tl-md bg-neutral-100 px-3.5 py-2.5 text-neutral-800 text-[13.5px] leading-snug anim-fadeUp" dangerouslySetInnerHTML={{ __html: m.text }} />
+          ))}
+          {typing && (
+            <div className="dotpulse max-w-[40%] rounded-2xl rounded-tl-md bg-neutral-100 px-4 py-3 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-neutral-500"/><span className="w-1.5 h-1.5 rounded-full bg-neutral-500"/><span className="w-1.5 h-1.5 rounded-full bg-neutral-500"/>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="px-4 pb-2 flex gap-2 overflow-x-auto no-scroll">
-        {CHIPS.map((c) => (
-          <button key={c} onClick={() => send(c)} className="shrink-0 text-[12px] px-3 py-1.5 rounded-full border border-neutral-200 bg-white text-neutral-600 hover:border-neutral-900 hover:text-neutral-900 transition">{c}</button>
-        ))}
-      </div>
-      <div className="px-4 pb-24 pt-1 flex items-center gap-2">
-        <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder="Ask Monium anything…" className="flex-1 rounded-full bg-neutral-100 border border-neutral-200 px-4 py-3 text-neutral-900 text-[14px] placeholder-neutral-400 outline-none focus:border-neutral-900" />
-        <button onClick={() => send()} className="w-11 h-11 rounded-full grid place-items-center text-white bg-neutral-900"><Send size={18}/></button>
+
+      {/* Composer: fixed to the bottom of the screen, never scrolls with the
+          conversation. The bottom padding clears the tab bar and the home
+          indicator underneath it. */}
+      <div className="shrink-0 bg-[#fbfbfb] border-t border-neutral-200/70"
+           style={{ paddingBottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}>
+        <div className="px-4 pt-2.5 pb-2 flex gap-2 overflow-x-auto no-scroll">
+          {CHIPS.map((c) => (
+            <button key={c} onClick={() => send(c)} className="shrink-0 text-[12px] px-3 py-1.5 rounded-full border border-neutral-200 bg-white text-neutral-600 hover:border-neutral-900 hover:text-neutral-900 transition">{c}</button>
+          ))}
+        </div>
+        <div className="px-4 flex items-center gap-2">
+          <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
+            placeholder="Ask Monium anything…" className="flex-1 rounded-full bg-neutral-100 border border-neutral-200 px-4 py-3 text-neutral-900 text-[14px] placeholder-neutral-400 outline-none focus:border-neutral-900" />
+          <button onClick={() => send()} className="w-11 h-11 shrink-0 rounded-full grid place-items-center text-white bg-neutral-900"><Send size={18}/></button>
+        </div>
       </div>
     </div>
   );
@@ -1067,7 +1082,9 @@ function App() {
               {phase === "review" && <div className="flex-1 overflow-y-auto no-scroll"><ScreenReview goals={goals} fin={fin} onDone={() => { setPhase("app"); setTab("home"); }} /></div>}
               {phase === "app" && (
                 <>
-                  <div className="flex-1 overflow-y-auto no-scroll">
+                  {/* Chat manages its own scrolling so its composer can stay
+                      pinned; every other tab scrolls as a whole. */}
+                  <div className={tab === "chat" ? "flex-1 min-h-0 flex flex-col" : "flex-1 overflow-y-auto no-scroll"}>
                     {tab === "home" && <Dashboard daily={daily} spent={spent} streak={streak} goalBite={goalBite} txns={txns} fin={fin} name={signedInAs} onRefresh={refresh} refreshing={refreshing} />}
                     {tab === "vaults" && <Vaults goals={goals} daily={daily} onToggle={toggleGoal} onAddGoal={() => setTab("chat")} />}
                     {tab === "chat" && <Chat messages={messages} typing={typing} onSend={handleUser} />}
